@@ -1,0 +1,4 @@
+parameter pRandomAverage(sResources,sTimePeriods) /
+
+/
+;

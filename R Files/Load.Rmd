@@ -58,18 +58,49 @@ ggplot(aes(x=Hour, y=DEMAND), data=load.summer) +
   geom_smooth(color="red") + scale_color_gradientn(colours=rainbow(7)) +
   labs(title="Hourly Load Profiles (Summer, Weekday)")
 
+##Late night hacking
+ggplot(aes(x=Hour, y=DEMAND), data=load.summer) + 
+  theme_minimal() + 
+  geom_smooth(color="red") +
+  labs(title="Hourly Load Profiles (Summer, Weekday)") + 
+  geom_line(aes(x=Hour, y=DEMAND, group=Date), color="blue", 
+            data=subset(load.summer, Date == "2010-07-05")) +
+  theme(legend.position="none")
+
+
+
 #simpler version of daily load profiles
 ggplot(aes(x=Hour, y=DEMAND), data=load.summer) + 
   geom_line(aes(group=Date), alpha=.1) + 
   geom_point(alpha=.1) + 
   theme_bw() + 
-  geom_smooth(color="red") +
-  labs(title="Hourly Load Profiles (Summer, Weekday)")
+#  geom_smooth(color="red") +
+  labs(title="Hourly Load Profiles (Summer, Weekday)") + 
+  geom_line(aes(x=Hour, y=DEMAND, group=Date, color=Date), 
+            data=subset(load.summer, INDX)) +
+  theme(legend.position="none")
+
+dt1 = load.hour$Date[indx]  # 2005-08-05
+dt2 = load.hour$Date[indx]  # 2005-06-29
+dt3 = load.hour$Date[indx]  # 2010-07-05
+dt4 = load.hour$Date[indx]  # 2007-07-04
 
 
-ggplot(aes(x=DryBulb, y=DEMAND), data=load.summer) + 
+load.summer$INDX = load.summer$Date %in% c("2005-08-05", "2005-06-29", "2010-07-05", "2007-07-04")
+
+#try to highlight a couple of interesting lines...
+t = load.hour$X15
+indx = which(t == min(t, na.rm=TRUE))
+dt4 = load.hour$Date[indx]
+filt1 = load.summer$Date == dt4
+load.summer$INDX = filt1
+
+load.summer = data.frame(load.summer, INDX = filt1)
+
+
+ggplot(aes(x=DryBulb, y=DEMAND), data=subset(load.summer, Hour==15)) + 
   geom_point() + 
-  theme_bw() + 
+  theme_minimal() + 
   geom_smooth() + 
   labs(title="Load by Hourly Temperature")
 
@@ -139,6 +170,8 @@ d_std = apply(load.hour[, 2:25], 2, sd, na.rm=TRUE)
 t= data.frame(Avg=dbar, Low=dlow, High=dhigh, Mid=dhat, Std=d_std)
 t = data.frame(Hour=1:24, t)
 t2 = melt(t, id.vars="Hour")
+
+write.csv(t, "LoadCLTParms.csv")
 
 #Take a look at the shapes to get a sense of what's going on.  
 ggplot(aes(x=Hour, y=value, color=variable, group=variable), data=t2) + 
@@ -306,7 +339,7 @@ model = temp.regs.lagged[[8]]
 
 **Observations**
 - Something Strange is happening at hour 8 and 21 for the $R^2$ values
-- Similraly somethinig strange between 5-8 and 15-21 in the Mean Square Error.
+- Similarly somethinig strange between 5-8 and 15-21 in the Mean Square Error.
 
 
 We use the (independent) test set to compute the residuals and construct a 
@@ -317,10 +350,11 @@ calcResids = function(models)
   t <- NULL  
   for (iHr in 1:24)
   {
-    t<- cbind(t, load.test[, 1 + iHr] - predict(models[[iHr]], load.test) )
+    t<- cbind(t, load.val[, 1 + iHr] - predict(models[[iHr]], load.val) )
   }
   return(t)
 }
+
 
 out.resid.lagged <- data.frame(calcResids(temp.regs.lagged))
 out.resid.step <- data.frame(calcResids(temp.regs.step))
@@ -331,6 +365,62 @@ ggplot(aes(x=X21), data=out.resid.lagged) + geom_histogram() + theme_bw()
 
 #write out the data with the fit to matlab.  
 write.csv(subset(out.resid.step, !is.na(X1) & ! is.na(X24)), "residualsTrial.csv")
+
+#use the above to predict on the couple of days we singled out.
+c("2005-08-05", "2005-06-29", "2010-07-05", "2007-07-04")
+pred_loads <- NULL  
+for (iHr in 1:24)
+{
+  pred_loads<- cbind(pred_loads, predict(temp.regs.step[[iHr]], load.val2) )
+}
+
+#spruce up pred_loads to make it the right shape to plot
+pred_loads = data.frame(Date = c("2005-08-05", "2005-06-29", "2010-07-05", "2007-07-04"), pred_loads)
+names(pred_loads)[2:25] <- 1:24
+
+#Add some noise to it....
+load_samples = NULL
+dates = c("2005-08-05", "2005-06-29", "2010-07-05", "2007-07-04")
+for (i in 1:4)
+{
+  t = cbind(Date=rep(dates[i], 20), zetas + pred_loads[rep(i, 20), 2:25])
+  load_samples = rbind(load_samples, t)
+}
+
+pred_loads2 = melt(load_samples, id.vars="Date", variable_name = "Hour", na.rm=TRUE)
+names(pred_loads2)[3] = "DEMAND"
+
+ggplot(aes(x=Hour, y=DEMAND), data=pred_loads.hour) + 
+  geom_line(aes(group=Date), alpha=.1) + 
+  geom_point(alpha=.1) + 
+  theme_minimal() + 
+  labs(title="Hourly Load Profiles (Summer, Weekday)") + 
+  geom_point(aes(x=as.numeric(Hour), y=DEMAND, color=Date), 
+            data=pred_loads2, linetype="dotted") +
+  theme(legend.position="none") 
+
+pred_loads.hour = melt(pred_loads, id.vars="Date", variable_name = "Hour", na.rm=TRUE)
+names(pred_loads.hour)[3] = "DEMAND"
+ggplot(aes(x=Hour, y=DEMAND), data=pred_loads2) + 
+  geom_point(aes(color=Date)) + theme_minimal() + 
+  geom_line(aes(group=Date), data=pred_loads.hour)
+
+
+#Example plot to a show a bad budget profile
+bad_load = read.csv(file="badProfile", header=FALSE)
+bad_load = cbind(Date="01-01-2000", Hour=1:24, bad_load)
+bad_load = data.frame(bad_load)
+names(bad_load)[3] = "DEMAND"
+
+ggplot(aes(x=Hour, y=DEMAND), data=load.summer) + 
+  geom_line(aes(group=Date), alpha=.1) + 
+  geom_point(alpha=.1) + 
+  theme_minimal() + 
+  labs(title="Hourly Load Profiles (Summer, Weekday)") + 
+  geom_line(aes(x=Hour), color="blue", data=bad_load) +
+  theme(legend.position="none") 
+
+
 
 ```
 
