@@ -107,13 +107,13 @@ def createGenerators( resources_path ):
             gen_dict[ gen_name ] = g    
     return gen_dict
 
-def parseGen( line, hasTime, isFloatParam ):
+def parseGen( line, hasTime, isFloatParam, scaling ):
         t = line.split()
         s_param = t[-1]
         indx = line.rfind(s_param)
         gen_name = line[:indx]
         if isFloatParam:
-            param = float(s_param)
+            param = float(s_param) * scaling
         else:
             param = s_param
         
@@ -130,7 +130,7 @@ def parseGen( line, hasTime, isFloatParam ):
 
         return gen_name, fuel_type, param, time
         
-def addGenParameter( param_path, param_name, gen_dict, hasTime=True, isFloatParam=True ):
+def addGenParameter( param_path, param_name, gen_dict, hasTime=True, isFloatParam=True, scaling=1. ):
     """Assumes a listing by generator and time and a parameter.  Useful for Ecomax, econmin"""
     gen_file = open(param_path, 'rU')
     #burn a line.
@@ -141,7 +141,7 @@ def addGenParameter( param_path, param_name, gen_dict, hasTime=True, isFloatPara
         if "/;" in line:
             break
 
-        gen_name, fuel_type, param, time = parseGen( line, hasTime, isFloatParam )
+        gen_name, fuel_type, param, time = parseGen( line, hasTime, isFloatParam, scaling )
         if gen_name not in gen_dict:
             raise RuntimeError("Generator %s not found" % gen_name)
         else:
@@ -161,7 +161,7 @@ def addGenParameter( param_path, param_name, gen_dict, hasTime=True, isFloatPara
     return gen_dict
 
 #VG Ideally, this should be lumped into the functionality above.
-def addReserveCap(param_path, gen_dict):
+def addReserveCap(param_path, gen_dict, scaling=1.):
     gen_file = open(param_path, 'rU')
     #burn a line.
     gen_file.readline()
@@ -188,7 +188,7 @@ def addReserveCap(param_path, gen_dict):
         #check to see if already set
         if g.__dict__[cap_type] is not None:
             raise RuntimeError("Parameter set twice.")
-        g.__dict__[cap_type] = float(s_value)
+        g.__dict__[cap_type] = float(s_value) * scaling
 
     return gen_dict
 
@@ -274,7 +274,7 @@ def addReserveBidSizes(param_path, gen_dict):
     return gen_dict
 
 def addStartUpBlocks( offHoursCurve_path, costs_path, time_path, 
-                                            notification_path, gen_dict):
+                                            notification_path, gen_dict, scaling=1.):
     file_offHrs = open( offHoursCurve_path, 'rU')
     file_offHrs.readline() #burn a line
     file_costs = open( costs_path, 'rU')
@@ -289,7 +289,7 @@ def addStartUpBlocks( offHoursCurve_path, costs_path, time_path,
         if "/;" in line_offHrs:
             break
 
-        #logic relies on the fact that everyting is listed in the same order.
+        #logic relies on the fact that everything is listed in the same order.
         t = line_offHrs.split()
         s_value = t[-1]
         indx_offHrs = line_offHrs.rfind(s_value)
@@ -317,7 +317,7 @@ def addStartUpBlocks( offHoursCurve_path, costs_path, time_path,
         else:
             sblock = StartUpBlock()
             sblock.offHr = float( line_offHrs[indx_offHrs:] )
-            sblock.cost = float( line_costs[indx_costs:] )
+            sblock.cost = float( line_costs[indx_costs:] ) * scaling
             sblock.time = float( line_times[indx_times:] )
             sblock.noti = float( line_noti[indx_noti:] )
             sblock.num = int( blocknum )
@@ -329,7 +329,7 @@ def addStartUpBlocks( offHoursCurve_path, costs_path, time_path,
 
     return gen_dict
 
-def addOfferBlocks( price_path, size_path, gen_dict):
+def addOfferBlocks( price_path, size_path, gen_dict, mw_scaling=1., price_scaling=1.):
     """ Adds the hourly offer curves """
     file_price = open( price_path, 'rU')
     file_price.readline() #burn a line
@@ -359,7 +359,7 @@ def addOfferBlocks( price_path, size_path, gen_dict):
         if time not in gen_dict[gen_name].offerBlocks:
             gen_dict[gen_name].offerBlocks[time] = []
 
-        block = OfferBlock(block_num, float(line_size[indx_size:]), float(line_price[indx_price:] ) )
+        block = OfferBlock(block_num, float(line_size[indx_size:]) * mw_scaling, float(line_price[indx_price:] ) * price_scaling )
         gen_dict[gen_name].offerBlocks[time].append( block ) 
 
     for g in gen_dict.values():
@@ -390,40 +390,57 @@ def fixRampRates(gen_dict):
 
         gen.ramp_rate = max_diff
         
-def doEverything(adjustRamp=False):
-    gen_dict = createGenerators("ISO-data/SetRes.txt")
-    
-    print "Num Generators:\t", len(gen_dict)
-    for iType in ("Steam", "CT", "Diesel", "Hydro", "Nuclear", "FixedImport"):
-        print iType, len( filter( lambda g: g.fuel_type == iType, gen_dict.values() ) )
+def doEverything():
+    gen_dict = createGenerators("../AndysGenInstance/SetRes.txt")
+    addGenParameter( "../AndysGenInstance/pEcomax.txt", "eco_max", gen_dict, scaling=1e-3 )
+    addGenParameter( "../AndysGenInstance/pEcomin.txt", "eco_min", gen_dict, scaling=1e-3 )
+    addGenParameter( "../AndysGenInstance/pMaxEnergy.txt", "max_energy", gen_dict, hasTime=False, scaling=1e-3 )
+    addGenParameter("../AndysGenInstance/pMaxStart.txt", "max_start", gen_dict, hasTime=False)
+    addGenParameter("../AndysGenInstance/pIniHour.txt", "init_online", gen_dict, hasTime=False)
+    addGenParameter("../AndysGenInstance/pMinDnTime.txt", "min_down", gen_dict, hasTime=False)
+    addGenParameter("../AndysGenInstance/pMinUpTime.txt", "min_up", gen_dict, hasTime=False)
+    addGenParameter("../AndysGenInstance/pNoloadcost.txt", "no_load", gen_dict, hasTime=False, scaling=1e-3)
+    addGenParameter("../AndysGenInstance/pRampRate.txt", "ramp_rate", gen_dict, hasTime=False, scaling=1e-3)
+    addGenParameter("../AndysGenInstance/pResTyp.txt", "res_type", gen_dict, hasTime=False, isFloatParam=False)
+    addGenParameter("../AndysGenInstance/pFixEnergy.txt", "fixed_energy", gen_dict, hasTime=True, scaling=1e-3)
 
-    addGenParameter( "ISO-data/pEcomax.txt", "eco_max", gen_dict )
-    addGenParameter( "ISO-data/pEcomin.txt", "eco_min", gen_dict )
-    addGenParameter( "ISO-data/pMaxEnergy.txt", "max_energy", gen_dict, hasTime=False )
-    addGenParameter("ISO-data/pMaxStart.txt", "max_start", gen_dict, hasTime=False)
-    addGenParameter("ISO-data/pIniHour.txt", "init_online", gen_dict, hasTime=False)
-    addGenParameter("ISO-data/pMinDnTime.txt", "min_down", gen_dict, hasTime=False)
-    addGenParameter("ISO-data/pMinUpTime.txt", "min_up", gen_dict, hasTime=False)
-    addGenParameter("ISO-data/pNoloadcost.txt", "no_load", gen_dict, hasTime=False)
-    addGenParameter("ISO-data/pRampRate.txt", "ramp_rate", gen_dict, hasTime=False)
-    addGenParameter("ISO-data/pResTyp.txt", "res_type", gen_dict, hasTime=False, isFloatParam=False)
-    addGenParameter("ISO-data/pFixEnergy.txt", "fixed_energy", gen_dict, hasTime=True)
-
-    addFlexResources( "ISO-data/SetFlxEgr.txt", gen_dict)
-    addMustRunHours("ISO-data/SetMustRun.txt", gen_dict)
-    addFlexReserves("ISO-data/SetFlexReserve.txt", gen_dict)
-    addReserveCap("ISO-data/pReserveCapacity.txt", gen_dict)
-    addStartUpBlocks( "ISO-data/pOfflineHr.txt", 
-                                        "ISO-data/pStartUpCost.txt", 
-                                        "ISO-data/pStartupTime.txt", 
-                                        "ISO-data/pNotTime.txt", gen_dict)
+    addFlexResources( "../AndysGenInstance/SetFlxEgr.txt", gen_dict)
+    addMustRunHours("../AndysGenInstance/SetMustRun.txt", gen_dict)
+    addFlexReserves("../AndysGenInstance/SetFlexReserve.txt", gen_dict)
+    addReserveCap("../AndysGenInstance/pReserveCapacity.txt", gen_dict, scaling=1e-3)
+    addStartUpBlocks( "../AndysGenInstance/pOfflineHr.txt", 
+                                        "../AndysGenInstance/pStartUpCost.txt", 
+                                        "../AndysGenInstance/pStartupTime.txt", 
+                                        "../AndysGenInstance/pNotTime.txt", gen_dict, scaling=1e-3)
     
-    addOfferBlocks( "ISO-data/pEnergyBidPrice.txt", "ISO-data/pEnergyBidSize.txt", gen_dict)
-    
-    if adjustRamp:
-        fixRampRates(gen_dict)
+    addOfferBlocks( "../AndysGenInstance/pEnergyBidPrice.txt", "../AndysGenInstance/pEnergyBidSize.txt", gen_dict)
+    fixRampRates(gen_dict)
 
     return gen_dict
+
+def smallTestCase( gen_dict, load_by_hr, TMSR_REQ, T10_REQ, T30_REQ, filt_percent=.1):
+    """Generates a muhc smaller test case to bug test algorithms
+    Everything done in place-ish"""
+    gens_2 = filter(lambda (n, g): g.res_type == "GEN" and g.fuel_type <> "FixedImport", 
+                                    gen_dict.items() )
+    gens_2 = dict(gens_2[: int( len(gens_2) * filt_percent ) ])
+    flex_loads = filter(lambda (n, g): g.res_type == "LOAD" and g.isFlexible, gen_dict.items() )
+    gens_2.update(dict(flex_loads) )
+    
+    inc_vars = filter(lambda (n, g): g.res_type == "INC", gen_dict.items() )
+    gens_2.update( dict(inc_vars[ :int( len(inc_vars) * filt_percent )] ) )
+    
+    dec_vars = filter( lambda (n, g): g.res_type == "DEC", gen_dict.items() )
+    gens_2.update( dict( dec_vars[ : int( len(dec_vars) * filt_percent ) ] ) )
+    len(gens_2)
+    gen_dict = gens_2
+
+    TMSR_REQ *=filt_percent
+    T10_REQ  *= filt_percent
+    T30_REQ *= filt_percent
+    load_by_hr = [l *filt_percent for l in load_by_hr ]
+
+    return gen_dict, load_by_hr, TMSR_REQ, T10_REQ, T30_REQ
 
 ###########################################
 if __name__ == "__main__":

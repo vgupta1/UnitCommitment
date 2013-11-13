@@ -12,10 +12,6 @@ EPSILON_ZERO = 1
 PENALTY = 5000
 TOL = 1e-2
 
-TMSR_REQ = 622.5
-T10_REQ  = 1245.
-T30_REQ = 1883.
-
 ## To DO:
 # Add cold/warm/hot starts
 # Only add ramping constraints for "interesting" Steam turbies.  Treat rest as cut generation + lazy
@@ -24,17 +20,21 @@ T30_REQ = 1883.
   # gens with identical eco-min eco-max
   # gens with zero eco_max in particular hours
 
-
 #notes:
 #The "GEN" with "FixedImport" have no generator characteristics, but have fixedEnergy
 #amounts in the hours after 24....  hence we just drop them from the data set.
 #We are ignoring network structure for now
 #For the incremental bid, actually vary by hour, but single block cost structure
 
+class UCModel():
+    self.model = None
+    self.on_vars, self.start_vars, self.stop_vars, self.cost_var = None, None, None, None
+    self.slack = None
+    self.prod_vars = None
+
 def hrToInt( sHr ):
     """ Convert "H12" to 12 """
     return int( sHr.lstrip("H") )
-
 def genStage1Vars( model, gen_dict ):
     """ Creates all stage 1 (committment) variables
     returns dicts:  on[gen, time], start[gen, time], stop[gen, time], cost_var
@@ -67,205 +67,6 @@ def genStage1Vars( model, gen_dict ):
     model.addConstr( cost_var >= cost_var_expr )
 
     return on_vars, start_vars, stop_vars, cost_var
-
-def genStage2VarsNom( model, gen_dict, useReserve=False ):
-    """Creates the continuous variables for nominal model.
-    prod[gen, time], reserve[gen, time, type]
-    """
-    prod, reserve = {}, {}
-    for name, gen in gen_dict.items():
-        if gen.res_type <> "GEN" or gen.fuel_type == "FixedImport":
-            continue
-
-        for iHr in range(HORIZON_LENGTH):
-            prod[name, iHr] = model.addVar(name="Prod" + name + "H" + str(iHr) )
-
-            if not useReserve:
-                continue
-            for cap_type in generator.GenUnit.RESERVE_PRODUCTS:
-                    reserve[name, iHr, cap_type] = model.addVar(name="Res" + name + "H" + str(iHr) + cap_type)
-    model.update()
-    return prod, reserve
-
-def genStage2VarsAffine( model, gen_dict ):
-    """Includes reserve varibles by default
-    prod[gen,time] = (f vec, g consant), reserve[gen, time, type] = (fvec, gconstant)
-    """
-    #VG Experiment computationally with value of adding explicit upper bounds to these variables
-    prod, reserve = {}, {}
-    for name, gen in gen_dict.items():
-        if gen.res_type <> "GEN" or gen.fuel_type == "FixedImport":
-            continue
-        for iHr in xrange(HORIZON_LENGTH):
-            fvec = [model.addVar(lb = -grb.GRB.INFINITY) for ix in xrange(HORIZON_LENGTH) ] 
-            prod[name, iHr] = (fvec, model.addVar(lb=-grb.GRB.INFINITY) )    
-        
-            for cap_type in generator.GenUnit.RESERVE_PRODUCTS:
-                fvec = [model.addVar(lb = -grb.GRB.INFINITY) for ix in xrange(HORIZON_LENGTH) ] 
-                reserve[name, iHr, cap_type] = (fvec, model.addVar(lb=-grb.GRB.INFINITY))    
-    model.update()
-    return prod, reserve
-
-def genFlexibleDemandVarsNom( model, gen_dict ):
-    """Creates 2nd stage varibles for the flexible demands... Only 7 of them currently.
-    Interpret these as revenue earned, and extra load you must satisfy.  
-    """
-    flex_loads = {}
-    for name, gen in gen_dict.items():
-        if gen.res_type <> "LOAD" or not gen.isFlexible:
-            continue
-        
-        #these flex loads have a single block bid structure
-        for iHr in range(HORIZON_LENGTH):
-            flex_loads[name, iHr] = model.addVar(lb=gen.eco_min["H" + str(iHr + 1)], 
-                                                                                 ub = gen.eco_max["H" + str(iHr + 1)], 
-                                                                                 obj=-gen.offerBlocks.values()[0][0].price, 
-                                                                                 name="FlexLoad" + name + "H" + str(iHr) )
-    return flex_loads
-
-def genFlexibleDemandVarsAffine( model, gen_dict ):
-    """Creates Affine variables for flex demands.  Interpret these as revenue earned and extra load
-    to satisfy 
-    flex_loads[name, iHr] = (fvec, gconstant) 
-    This formulation requires we call a separate function to add the lower and upper bounds and
-    associated cost
-    """
-    flex_loads = {}
-    for name, gen in gen_dict.items():
-        if gen.res_type <> "LOAD" or not gen.isFlexible:
-            continue
-        
-        #these flex loads have a single block bid structure
-        for iHr in range(HORIZON_LENGTH):
-            fvec = [model.addVar(lb = -grb.GRB.INFINITY) for ix in xrange(HORIZON_LENGTH) ]             
-            flex_loads[name, iHr] = (fvec, model.addVar(lb= -grb.GRB.INFINITY) )
-    return flex_loads
-
-def boundFlexDemandAffine( model, gen_dict, flex_loads, avg_load, kappa, gam1, C):
-    """Adds upper and lower bounds and the cost variable for the affine formulation for flex."""
-    #requisition everything upfront
-    revenue_vars = {}
-    for (name, iHr), (fvec, g0) in flex_loads.items():
-        revenue_vars[name, iHr] = model.addVar(obj = -gen_dict[name].offerBlocks.values()[0][0].price) #Notice neg obj 
-    t1s, t2s, t3s, t4s = __addVecVars(model, 3 * len(flex_loads) )
-    ix = 0
-    for (name, iHr), (fvec, g0) in flex_loads.items():
-        #lower bound
-        __addGreaterEqual( model, fvec, g0, gen_dict[name].eco_min["H" + str(iHr + 1)], 
-                                            avg_load, kappa, gam1, C, "FlexDemandLB" + name + str(iHr), 
-                                            t1s[ix], t2s[ix], t3s[ix], t4s[ix])        
-
-        #upper bound
-        __addLessEqual( model, fvec, g0, gen_dict[name].eco_max["H" + str(iHr + 1)], 
-                                        avg_load, kappa, gam1, C, "FlexDemandUB" + name + str(iHr), 
-                                        t1s[ix + 1], t2s[ix + 1], t3s[ix + 1], t4s[ix + 1] )
-        #Revenue
-        __addGreaterEqual( model, fvec, g0, revenue_vars[name, iHr], 
-                                                avg_load, kappa, gam1, C, "RevenueFlex" + name + str(iHr), 
-                                                t1s[ix + 2], t2s[ix+2], t3s[ix + 2], t4s[ix + 2] )
-        ix +=3
-
-def genIncVarsNom( model, gen_dict):
-    """Creates the variables for the incremental bids"""
-    inc_vars = {}
-    for name, gen in gen_dict.items():
-        if gen.res_type <> "INC":
-            continue
-        #VG Think about changing these to be unit size...
-        for iHr, blocks in gen.offerBlocks.items():
-            inc_vars[name, iHr] = model.addVar( ub = blocks[0].size, 
-                                                                                      obj = blocks[0].price, 
-                                                                                name = "Inc" + name + "H" + str(iHr) )
-    return inc_vars
-
-def __addVecVars( model, numConstrs):
-    """ Adds all the variables for the vec version of Less Equal.  a tuple of variable handles"""
-    t1s, t2s, t3s, t4s = [], [], [], []
-    for ix in xrange(numConstrs):
-        t1s.append(model.addVar() )
-        t2s.append(model.addVar() )
-        t3s.append( [model.addVar(lb = -grb.GRB.INFINITY) for ix in xrange(HORIZON_LENGTH)] )
-        t4s.append( [model.addVar(lb = -grb.GRB.INFINITY) for ix in xrange(HORIZON_LENGTH)] )
-
-    model.update()
-    return t1s, t2s, t3s, t4s
-
-def __addLessEqual( model, fvec, g0, rhs, avg_load, kappa, gam1, C, sname, 
-                                        t1 = None, t2 = None, t3 = None, t4 = None):
-    """Adds the equivalent to the robust affine constraint f0' d + g <= rhs for all d in U """
-    if t1 is None:
-        t1 = model.addVar()
-        t2 = model.addVar()
-        t3 = [ model.addVar( lb = -grb.GRB.INFINITY) for ix in xrange(HORIZON_LENGTH) ] 
-        t4 = [ model.addVar(lb = -grb.GRB.INFINITY) for ix in xrange(HORIZON_LENGTH) ]
-        model.update()
-    
-    objs = [ t1, t2]
-    objs += t3
-    objs += t4
-
-    objs.append( model.addConstr(grb.quicksum(f * m for f, m in zip(fvec, avg_load) ) + 
-                                    gam1 * t1 + kappa * t2 + g0 <= rhs, name=sname )  )
-    for row, t in zip(C, t3):
-        objs.append( model.addConstr( grb.quicksum( r * f for r,f in zip(row, fvec) ) == t ) )
-
-    for f, t in zip(fvec, t4):
-        objs.append( model.addConstr( f == t ) )
-    objs.append( model.addQConstr( grb.quicksum( t * t for t in t4 ) <= t1*t1, name=sname + "Q1" ) )
-    objs.append( model.addQConstr( grb.quicksum( t * t for t in t3 ) <= t2 * t2, name=sname + "Q2" ) )
-
-    return objs
-
-def __addGreaterEqual( model, fvec, g0, rhs, avg_load, kappa, gam1, C, sname,
-                                        t1 = None, t2 = None, t3 = None, t4 = None):
-    if t1 is None:
-        t1 = model.addVar()
-        t2 = model.addVar()
-        t3 = [ model.addVar( lb = -grb.GRB.INFINITY) for ix in xrange(HORIZON_LENGTH) ] 
-        t4 = [ model.addVar(lb = -grb.GRB.INFINITY) for ix in xrange(HORIZON_LENGTH) ]
-        model.update()
-    objs = [ t1, t2]
-    objs += t3
-    objs += t4
-    objs.append( model.addConstr(grb.quicksum(f * m for f, m in zip(fvec, avg_load) ) - 
-                                    gam1 * t1 - kappa * t2 + g0 >= rhs, name=sname ) )
-    for row, t in zip(C, t3):
-        objs.append( model.addConstr( numpy.dot( row, fvec ) == t ) )              
-    for f, t in zip(fvec, t4):
-        objs.append( model.addConstr( f == t ) )
-
-    objs.append( model.addQConstr( numpy.dot(t4, t4) <= t1*t1, name = sname + "Q1" ) )
-    objs.append( model.addQConstr( numpy.dot(t3, t3) <= t2 * t2, name=sname + "Q2" ) )
-    return objs
-   
-def genDecVarsNom(model, gen_dict):
-    """Creates the dec bids.  notice that we assume the cost structure here
-    is in terms of blocks, different form bid curve of true generators."""
-    #generate a big set of dictionaries at expense of memory to do only one model update
-    dec_vars_amt, dec_vars_cost = {}, {}
-    ys_all = {}
-    #iterate twice so only one model update
-    for name, gen in gen_dict.items():
-        if gen.res_type <> "DEC":
-            continue
-            
-        #VG Think about changing these to be unit size...
-        for iHr, blocks in gen.offerBlocks.items():
-            dec_vars_amt[name, iHr] = model.addVar()
-            dec_vars_cost[name, iHr] = model.addVar(obj=-1.0)
-            ys_all[name, iHr] = [ model.addVar(ub = b.size)  for b in blocks]
-
-    model.update()
-    for name, gen in gen_dict.items():
-        if gen.res_type <> "DEC":
-            continue
-        for iHr, blocks in gen.offerBlocks.items():
-            model.addConstr( dec_vars_amt[name, iHr] == 
-                    grb.quicksum( ys_all[name, iHr] ) )
-            model.addConstr( dec_vars_cost[name, iHr] == 
-                    grb.quicksum( y * b.price for y, b in zip(ys_all[name, iHr], blocks) ) )
-
-    return dec_vars_amt, dec_vars_cost    
 def addPiecewiseCosts(model, gen_dict, prod_vars, useAffine=False, Udict = {} ):
     """Creates variables and the defining constraints for the piecewise cost functions
     for the variable cost """
@@ -322,7 +123,6 @@ def addPiecewiseCosts(model, gen_dict, prod_vars, useAffine=False, Udict = {} ):
                 model.addConstr( prod_vars[name, iHr] == 
                         grb.quicksum( y * s for y, s in zip(ys_all[name, iHr], size_diffs) ) )
     return cost_vars
-
 def startStopConstraints(m, gen_dict, on_vars, start_vars, stop_vars):
     for gen in gen_dict.values():
         if gen.res_type <> "GEN" or gen.fuel_type == "FixedImport":
@@ -350,7 +150,6 @@ def startStopConstraints(m, gen_dict, on_vars, start_vars, stop_vars):
                 m.addConstr( start_vars[name, iHr] == 0 )
 
     return m            
-
 def minUpConstraints(model, gen_dict, on_vars):
     for gen in gen_dict.values():
         if gen.res_type <> "GEN" or gen.fuel_type == "FixedImport":
@@ -374,7 +173,6 @@ def minUpConstraints(model, gen_dict, on_vars):
             for tau in xrange( iHr + 1, min( iHr + int(gen.min_up), HORIZON_LENGTH) ):
                 model.addConstr( on_vars[name, iHr] - on_vars[name, iHr - 1] <=
                                         on_vars[name, tau] )
-        
 def minDownConstraints(model, gen_dict, on_vars):
     for gen in gen_dict.values():
         if gen.res_type <> "GEN" or gen.fuel_type == "FixedImport":
@@ -398,7 +196,155 @@ def minDownConstraints(model, gen_dict, on_vars):
             for tau in xrange( iHr + 1, min( iHr + int(gen.min_up), HORIZON_LENGTH) ):
                 model.addConstr( on_vars[name, iHr - 1] - on_vars[name, iHr] <=
                                         1 - on_vars[name, tau] )
+def computeGenByHr(gen_dict, prod_vars, flex_loads, dec_vars_amt, inc_vars):
+    """Use the solved model to create a nice grid of generation type by day"""
+    prod_by_hour = Counter()
+    for name, hr in prod_vars.keys():
+        prod_by_hour[ "TOTAL", hr ] += prod_vars[name, hr].x
 
+    for name, hr in prod_vars.keys():
+        prod_by_hour[ gen_dict[name].fuel_type, hr ] += prod_vars[name, hr].x
+        
+    for name, hr in flex_loads:
+        prod_by_hour["FLEX", hr] += flex_loads[name, hr].x
+        
+    for name, hr in inc_vars.keys():
+        prod_by_hour["INC", int(hr.lstrip("H")) - 1] += inc_vars[name, hr].x
+    
+    for name, hr, in dec_vars_amt.keys():
+        prod_by_hour["DEC", int(hr.lstrip("H")) -1 ] += dec_vars_amt[name, hr].x    
+
+    return prod_by_hour
+
+######### Stuff for the nominal only
+def genIncVarsNom( model, gen_dict):
+    """Creates the variables for the incremental bids"""
+    inc_vars = {}
+    for name, gen in gen_dict.items():
+        if gen.res_type <> "INC":
+            continue
+        #VG Think about changing these to be unit size...
+        for iHr, blocks in gen.offerBlocks.items():
+            inc_vars[name, iHr] = model.addVar( ub = blocks[0].size, 
+                                                                                      obj = blocks[0].price, 
+                                                                                name = "Inc" + name + "H" + str(iHr) )
+    return inc_vars
+def genDecVarsNom(model, gen_dict):
+    """Creates the dec bids.  notice that we assume the cost structure here
+    is in terms of blocks, different form bid curve of true generators."""
+    #generate a big set of dictionaries at expense of memory to do only one model update
+    dec_vars_amt, dec_vars_cost = {}, {}
+    ys_all = {}
+    #iterate twice so only one model update
+    for name, gen in gen_dict.items():
+        if gen.res_type <> "DEC":
+            continue
+            
+        #VG Think about changing these to be unit size...
+        for iHr, blocks in gen.offerBlocks.items():
+            dec_vars_amt[name, iHr] = model.addVar()
+            dec_vars_cost[name, iHr] = model.addVar(obj=-1.0)
+            ys_all[name, iHr] = [ model.addVar(ub = b.size)  for b in blocks]
+
+    model.update()
+    for name, gen in gen_dict.items():
+        if gen.res_type <> "DEC":
+            continue
+        for iHr, blocks in gen.offerBlocks.items():
+            model.addConstr( dec_vars_amt[name, iHr] == 
+                    grb.quicksum( ys_all[name, iHr] ) )
+            model.addConstr( dec_vars_cost[name, iHr] == 
+                    grb.quicksum( y * b.price for y, b in zip(ys_all[name, iHr], blocks) ) )
+
+    return dec_vars_amt, dec_vars_cost    
+def genStage2VarsNom( model, gen_dict, useReserve=False ):
+    """Creates the continuous variables for nominal model.
+    prod[gen, time], reserve[gen, time, type]
+    """
+    prod, reserve = {}, {}
+    for name, gen in gen_dict.items():
+        if gen.res_type <> "GEN" or gen.fuel_type == "FixedImport":
+            continue
+
+        for iHr in range(HORIZON_LENGTH):
+            prod[name, iHr] = model.addVar(name="Prod" + name + "H" + str(iHr) )
+
+            if not useReserve:
+                continue
+            for cap_type in generator.GenUnit.RESERVE_PRODUCTS:
+                    reserve[name, iHr, cap_type] = model.addVar(name="Res" + name + "H" + str(iHr) + cap_type)
+    model.update()
+    return prod, reserve
+def genFlexibleDemandVarsNom( model, gen_dict ):
+    """Creates 2nd stage varibles for the flexible demands... Only 7 of them currently.
+    Interpret these as revenue earned, and extra load you must satisfy.  
+    """
+    flex_loads = {}
+    for name, gen in gen_dict.items():
+        if gen.res_type <> "LOAD" or not gen.isFlexible:
+            continue
+        
+        #these flex loads have a single block bid structure
+        for iHr in range(HORIZON_LENGTH):
+            flex_loads[name, iHr] = model.addVar(lb=gen.eco_min["H" + str(iHr + 1)], 
+                                                                                 ub = gen.eco_max["H" + str(iHr + 1)], 
+                                                                                 obj=-gen.offerBlocks.values()[0][0].price, 
+                                                                                 name="FlexLoad" + name + "H" + str(iHr) )
+    return flex_loads
+def reserveRequirements(model, gen_dit, reserve_vars):
+    cnsts = []
+    for iHr in xrange(HORIZON_LENGTH):
+        TMSR_vars_by_hr = filter( lambda (name, hr, type): hr == iHr and type == "TMSR_Cap", 
+                                                        reserve_vars.keys() )
+        cnsts.append ( model.addConstr( 
+                grb.quicksum(reserve_vars[k] for k in TMSR_vars_by_hr ) >= TMSR_REQ ) )
+        T10_vars_by_hr = filter( lambda (name, hr, type): hr == iHr and 
+                                                    type in ("TMSR_CAP", "TMNSR_Cap"), 
+                                                    reserve_vars.keys() )
+        cnsts.append( model.addConstr( 
+                grb.quicksum(reserve_vars[k] for k in T10_vars_by_hr ) >= T10_REQ, 
+                name="T10_Req" + "H" + str(iHr) ) )
+        T30_vars_by_hr = filter( lambda (name, hr, type): hr == iHr and 
+                                                    type in ("TMSR_CAP", "TMNSR_Cap", "TMOR_CAP"), 
+                                                    reserve_vars.keys())
+        cnsts.append ( model.addConstr( 
+                grb.quicksum(reserve_vars[k] for k in T30_vars_by_hr ) >= T30_REQ, 
+                                name="T10_Req" + "H" + str(iHr) ) )
+    return cnsts
+def reserveCapacity(model, gen_dict, reserve_vars, res_cnsts):
+    """ No generator can offer more reserve of any type than its capacity allows."""
+    for name, gen in gen_dict.items():
+        if gen.res_type <> "GEN" or gen.fuel_type == "FixedImport":
+            continue
+        #Notice that the TMSR cap is already handled by the on-off
+        if gen.T10_Cap is not None:
+            for iHr in xrange(HORIZON_LENGTH):
+                model.addConstr( reserve_vars[name, iHr, "TMSR_Cap"] + 
+                                                    reserve_vars[name, iHr, "TMNSR_Cap"] <= gen.T10_Cap )
+        if gen.T30_Cap is not None:
+            for iHr in xrange(HORIZON_LENGTH):
+                model.addConstr( reserve_vars[name, iHr, "TMSR_Cap"] + 
+                                                    reserve_vars[name, iHr, "TMNSR_Cap"] +
+                                                    reserve_vars[name, iHr, "TMOR_Cap"] <= gen.T30_Cap )
+    return res_cnsts
+def rampingConsts(model, gen_dict, prod_vars, start_vars, stop_vars, M=5e3):
+    for name, gen in gen_dict.items():
+        if gen.res_type <> "GEN" or gen.fuel_type == "FixedImport":
+            continue
+
+        if gen.ramp_rate is None:
+            print "No Ramp Rate:\t", name
+            continue
+        
+        #ignore ramping constraints for the first slice.
+        for hr in xrange(1, HORIZON_LENGTH):
+            model.addConstr( prod_vars[name, hr] - prod_vars[name, hr - 1] <= 
+                                                gen.ramp_rate + M * start_vars[name, hr], 
+                                                name= "RampUP" + name + "H" + str(hr) )
+            model.addConstr( prod_vars[name, hr -1] - prod_vars[name, hr] <= 
+                                                gen.ramp_rate + M * stop_vars[name, hr], 
+                                                name="RampDown" + name + "H" + str(hr) )
+    return model    
 def nominalLoadBalance(model, gen_dict, prod_vars, load_by_hr, 
                                               flex_loads, dec_vars_amt, inc_vars):
     """ Adds a constraint to minimize the L1 deviation from the load."""
@@ -426,7 +372,181 @@ def nominalLoadBalance(model, gen_dict, prod_vars, load_by_hr,
         balance_cnsts.append ( model.addConstr( prod_by_hr[hr] - load_by_hr[hr] <= slack[hr] ) )
         balance_cnsts.append ( model.addConstr( load_by_hr[hr] - prod_by_hr[hr] <= slack[hr] ) )
     return slack, balance_cnsts
+def ecoMinMaxConsts(model, gen_dict, prod_vars, on_vars, reserve_vars):
+    """
+    on_var * eco_min <= prod_vars + reserve <= on_vars * eco_max
+    """
+    #VG Right now no on_vars for nonstandard generation.  Later update
+    for name, iHr in on_vars.keys():
+        sHr = "H" + str(iHr + 1)
+        reserve = grb.quicksum(reserve_vars[name, iHr, type] 
+                            for type in generator.GenUnit.RESERVE_PRODUCTS)
+        eco_max_dict = gen_dict[name].eco_max
+        model.addConstr( on_vars[name, iHr] * gen_dict[name].eco_min[sHr] <=
+                                          prod_vars[name, iHr] + reserve, 
+                                          name="EcoMin" + name + "H" + str(iHr) )  
+        model.addConstr( prod_vars[name, iHr]  + reserve <= 
+                                         on_vars[name, iHr] * gen_dict[name].eco_max[sHr], 
+                                         name="Ecomax" + name + "H" + str(iHr) )
+        #you need to be on in order to offer spinning reserve
+        if (name, iHr, "TMSR_Cap") in reserve_vars:
+            model.addConstr( reserve_vars[name, iHr, "TMSR_Cap"] <= 
+                on_vars[name, iHr] * gen_dict[name].TMSR_Cap, 
+                name="SpinningReserve" + "name" + sHr )
+        reserve = grb.quicksum(reserve_vars[name, iHr, type] 
+                            for type in generator.GenUnit.RESERVE_PRODUCTS)
+def buildNominal(gen_dict, load_by_hr, TMSR_REQ, T10_REQ, T30_Req, includeIncDecs = False):
+    """ Builds the nominal version of the capacity model
+    Assumes all the data is in the appropriate folder for now"""
+    m = grb.Model("UCNominal")
+    on_vars, start_vars, stop_vars, cost_var = genStage1Vars( m, gen_dict )
+    prod_vars, reserve_vars = genStage2VarsNom(m, gen_dict, True )
+    variable_cost_vars = addPiecewiseCosts(m, gen_dict, prod_vars )
+    startStopConstraints(m, gen_dict, on_vars, start_vars, stop_vars)
+    ecoMinMaxConsts(m, gen_dict, prod_vars, on_vars, reserve_vars)
+    minUpConstraints(m, gen_dict, on_vars)
+    minDownConstraints(m, gen_dict, on_vars)
+    flex_loads = genFlexibleDemandVarsNom( m, gen_dict )
+    reserve_cnsts = reserveRequirements(m, gen_dict, reserve_vars)
+    reserveCapacity(m, gen_dict, reserve_vars, reserve_cnsts)
+    rampingConsts(m, gen_dict, prod_vars, start_vars, stop_vars)
+    if includeIncDecs:
+       dec_vars_amt, dec_vars_price = genDecVarsNom(m, gen_dict)
+       inc_vars = genIncVarsNom( m, gen_dict)
+    else:
+        dec_vars_amt = dec_vars_price = inc_vars = {}
+    slack, balance_cnsts = nominalLoadBalance(m, gen_dict, prod_vars, load_by_hr, 
+                                                        flex_loads, dec_vars_amt, inc_vars)
+    out = UCModel()
+    out.model = m
+    out.on_vars = on_vars
+    out.start_vars = start_vrs
+    out.stop_vars = cost_var
+    out.prod_vars = prod_var
+    out.slack = slack
 
+    out.balance_objs = balance_cnsts
+    out.reserve_vars = reserve_var
+    out.variable_cost_vars = variable_cost_vars
+    out.flex_loads = flex_loads
+    return out    
+
+#######Affine stuff only
+def genStage2VarsAffine( model, gen_dict ):
+    """Includes reserve varibles by default
+    prod[gen,time] = (f vec, g consant), reserve[gen, time, type] = (fvec, gconstant)
+    """
+    #VG Experiment computationally with value of adding explicit upper bounds to these variables
+    prod, reserve = {}, {}
+    for name, gen in gen_dict.items():
+        if gen.res_type <> "GEN" or gen.fuel_type == "FixedImport":
+            continue
+        for iHr in xrange(HORIZON_LENGTH):
+            fvec = [model.addVar(lb = -grb.GRB.INFINITY) for ix in xrange(HORIZON_LENGTH) ] 
+            prod[name, iHr] = (fvec, model.addVar(lb=-grb.GRB.INFINITY) )    
+        
+            for cap_type in generator.GenUnit.RESERVE_PRODUCTS:
+                fvec = [model.addVar(lb = -grb.GRB.INFINITY) for ix in xrange(HORIZON_LENGTH) ] 
+                reserve[name, iHr, cap_type] = (fvec, model.addVar(lb=-grb.GRB.INFINITY))    
+    model.update()
+    return prod, reserve
+def genFlexibleDemandVarsAffine( model, gen_dict ):
+    """Creates Affine variables for flex demands.  Interpret these as revenue earned and extra load
+    to satisfy 
+    flex_loads[name, iHr] = (fvec, gconstant) 
+    This formulation requires we call a separate function to add the lower and upper bounds and
+    associated cost
+    """
+    flex_loads = {}
+    for name, gen in gen_dict.items():
+        if gen.res_type <> "LOAD" or not gen.isFlexible:
+            continue
+        
+        #these flex loads have a single block bid structure
+        for iHr in range(HORIZON_LENGTH):
+            fvec = [model.addVar(lb = -grb.GRB.INFINITY) for ix in xrange(HORIZON_LENGTH) ]             
+            flex_loads[name, iHr] = (fvec, model.addVar(lb= -grb.GRB.INFINITY) )
+    return flex_loads
+def boundFlexDemandAffine( model, gen_dict, flex_loads, avg_load, kappa, gam1, C):
+    """Adds upper and lower bounds and the cost variable for the affine formulation for flex."""
+    #requisition everything upfront
+    revenue_vars = {}
+    for (name, iHr), (fvec, g0) in flex_loads.items():
+        revenue_vars[name, iHr] = model.addVar(obj = -gen_dict[name].offerBlocks.values()[0][0].price) #Notice neg obj 
+    t1s, t2s, t3s, t4s = __addVecVars(model, 3 * len(flex_loads) )
+    ix = 0
+    for (name, iHr), (fvec, g0) in flex_loads.items():
+        #lower bound
+        __addGreaterEqual( model, fvec, g0, gen_dict[name].eco_min["H" + str(iHr + 1)], 
+                                            avg_load, kappa, gam1, C, "FlexDemandLB" + name + str(iHr), 
+                                            t1s[ix], t2s[ix], t3s[ix], t4s[ix])        
+
+        #upper bound
+        __addLessEqual( model, fvec, g0, gen_dict[name].eco_max["H" + str(iHr + 1)], 
+                                        avg_load, kappa, gam1, C, "FlexDemandUB" + name + str(iHr), 
+                                        t1s[ix + 1], t2s[ix + 1], t3s[ix + 1], t4s[ix + 1] )
+        #Revenue
+        __addGreaterEqual( model, fvec, g0, revenue_vars[name, iHr], 
+                                                avg_load, kappa, gam1, C, "RevenueFlex" + name + str(iHr), 
+                                                t1s[ix + 2], t2s[ix+2], t3s[ix + 2], t4s[ix + 2] )
+        ix +=3
+def __addVecVars( model, numConstrs):
+    """ Adds all the variables for the vec version of Less Equal.  a tuple of variable handles"""
+    t1s, t2s, t3s, t4s = [], [], [], []
+    for ix in xrange(numConstrs):
+        t1s.append(model.addVar() )
+        t2s.append(model.addVar() )
+        t3s.append( [model.addVar(lb = -grb.GRB.INFINITY) for ix in xrange(HORIZON_LENGTH)] )
+        t4s.append( [model.addVar(lb = -grb.GRB.INFINITY) for ix in xrange(HORIZON_LENGTH)] )
+
+    model.update()
+    return t1s, t2s, t3s, t4s
+def __addLessEqual( model, fvec, g0, rhs, avg_load, kappa, gam1, C, sname, 
+                                        t1 = None, t2 = None, t3 = None, t4 = None):
+    """Adds the equivalent to the robust affine constraint f0' d + g <= rhs for all d in U """
+    if t1 is None:
+        t1 = model.addVar()
+        t2 = model.addVar()
+        t3 = [ model.addVar( lb = -grb.GRB.INFINITY) for ix in xrange(HORIZON_LENGTH) ] 
+        t4 = [ model.addVar(lb = -grb.GRB.INFINITY) for ix in xrange(HORIZON_LENGTH) ]
+        model.update()
+    
+    objs = [ t1, t2]
+    objs += t3
+    objs += t4
+
+    objs.append( model.addConstr(grb.quicksum(f * m for f, m in zip(fvec, avg_load) ) + 
+                                    gam1 * t1 + kappa * t2 + g0 <= rhs, name=sname )  )
+    for row, t in zip(C, t3):
+        objs.append( model.addConstr( grb.quicksum( r * f for r,f in zip(row, fvec) ) == t ) )
+
+    for f, t in zip(fvec, t4):
+        objs.append( model.addConstr( f == t ) )
+    objs.append( model.addQConstr( grb.quicksum( t * t for t in t4 ) <= t1*t1, name=sname + "Q1" ) )
+    objs.append( model.addQConstr( grb.quicksum( t * t for t in t3 ) <= t2 * t2, name=sname + "Q2" ) )
+
+    return objs
+def __addGreaterEqual( model, fvec, g0, rhs, avg_load, kappa, gam1, C, sname,
+                                        t1 = None, t2 = None, t3 = None, t4 = None):
+    if t1 is None:
+        t1 = model.addVar()
+        t2 = model.addVar()
+        t3 = [ model.addVar( lb = -grb.GRB.INFINITY) for ix in xrange(HORIZON_LENGTH) ] 
+        t4 = [ model.addVar(lb = -grb.GRB.INFINITY) for ix in xrange(HORIZON_LENGTH) ]
+        model.update()
+    objs = [ t1, t2]
+    objs += t3
+    objs += t4
+    objs.append( model.addConstr(grb.quicksum(f * m for f, m in zip(fvec, avg_load) ) - 
+                                    gam1 * t1 - kappa * t2 + g0 >= rhs, name=sname ) )
+    for row, t in zip(C, t3):
+        objs.append( model.addConstr( numpy.dot( row, fvec ) == t ) )              
+    for f, t in zip(fvec, t4):
+        objs.append( model.addConstr( f == t ) )
+
+    objs.append( model.addQConstr( numpy.dot(t4, t4) <= t1*t1, name = sname + "Q1" ) )
+    objs.append( model.addQConstr( numpy.dot(t3, t3) <= t2 * t2, name=sname + "Q2" ) )
+    return objs
 def affineLoadBalanceNaive(model, gen_dict, fprod_sys, gprod_sys, 
                                                     avg_load, kappa, gam1, C):
     """ Adds a constraint to minimize the L1 deviation from the load."""
@@ -447,7 +567,6 @@ def affineLoadBalanceNaive(model, gen_dict, fprod_sys, gprod_sys,
             "LoadBalanceLB" + str(hr), 
             t1s[2* hr + 1], t2s[2 * hr + 1], t3s[2*hr + 1], t4s[2 * hr + 1])
     return slack, balance_cnsts
-
 def formSysLevelAffine( prod_vars, flex_vars ):
     f_sys, g_sys = {}, {}
     for name, hr in prod_vars.keys():
@@ -464,26 +583,6 @@ def formSysLevelAffine( prod_vars, flex_vars ):
         g_sys[hr] -= g
 
     return f_sys, g_sys
-
-def rampingConsts(model, gen_dict, prod_vars, start_vars, stop_vars, M=5e3):
-    for name, gen in gen_dict.items():
-        if gen.res_type <> "GEN" or gen.fuel_type == "FixedImport":
-            continue
-
-        if gen.ramp_rate is None:
-            print "No Ramp Rate:\t", name
-            continue
-        
-        #ignore ramping constraints for the first slice.
-        for hr in xrange(1, HORIZON_LENGTH):
-            model.addConstr( prod_vars[name, hr] - prod_vars[name, hr - 1] <= 
-                                                gen.ramp_rate + M * start_vars[name, hr], 
-                                                name= "RampUP" + name + "H" + str(hr) )
-            model.addConstr( prod_vars[name, hr -1] - prod_vars[name, hr] <= 
-                                                gen.ramp_rate + M * stop_vars[name, hr], 
-                                                name="RampDown" + name + "H" + str(hr) )
-    return model    
-
 def rampingConstsAffine(model, gen_dict, prod_vars, start_vars, stop_vars, 
                                                 avg_load, kappa, gam1, C, M=5e3, sparse=False):
     for name, gen in gen_dict.items():
@@ -521,31 +620,6 @@ def rampingConstsAffine(model, gen_dict, prod_vars, start_vars, stop_vars,
                                                 "rampingLB" + name + str(hr))
             ## End duplication
     return model    
-
-def ecoMinMaxConsts(model, gen_dict, prod_vars, on_vars, reserve_vars):
-    """
-    on_var * eco_min <= prod_vars + reserve <= on_vars * eco_max
-    """
-    #VG Right now no on_vars for nonstandard generation.  Later update
-    for name, iHr in on_vars.keys():
-        sHr = "H" + str(iHr + 1)
-        reserve = grb.quicksum(reserve_vars[name, iHr, type] 
-                            for type in generator.GenUnit.RESERVE_PRODUCTS)
-        eco_max_dict = gen_dict[name].eco_max
-        model.addConstr( on_vars[name, iHr] * gen_dict[name].eco_min[sHr] <=
-                                          prod_vars[name, iHr] + reserve, 
-                                          name="EcoMin" + name + "H" + str(iHr) )  
-        model.addConstr( prod_vars[name, iHr]  + reserve <= 
-                                         on_vars[name, iHr] * gen_dict[name].eco_max[sHr], 
-                                         name="Ecomax" + name + "H" + str(iHr) )
-        #you need to be on in order to offer spinning reserve
-        if (name, iHr, "TMSR_Cap") in reserve_vars:
-            model.addConstr( reserve_vars[name, iHr, "TMSR_Cap"] <= 
-                on_vars[name, iHr] * gen_dict[name].TMSR_Cap, 
-                name="SpinningReserve" + "name" + sHr )
-        reserve = grb.quicksum(reserve_vars[name, iHr, type] 
-                            for type in generator.GenUnit.RESERVE_PRODUCTS)
-
 def ecoMinMaxConstsAffine(model, gen_dict, prod_vars, on_vars, reserve_vars, avg_load, 
 kappa, gam1, C):
     """
@@ -604,28 +678,6 @@ kappa, gam1, C):
             else:
                 print "No TMSR_Cap:\t", name, iHr
             ix += 3     
-
-def reserveRequirements(model, gen_dit, reserve_vars):
-    cnsts = []
-    for iHr in xrange(HORIZON_LENGTH):
-        TMSR_vars_by_hr = filter( lambda (name, hr, type): hr == iHr and type == "TMSR_Cap", 
-                                                        reserve_vars.keys() )
-        cnsts.append ( model.addConstr( 
-                grb.quicksum(reserve_vars[k] for k in TMSR_vars_by_hr ) >= TMSR_REQ ) )
-        T10_vars_by_hr = filter( lambda (name, hr, type): hr == iHr and 
-                                                    type in ("TMSR_CAP", "TMNSR_Cap"), 
-                                                    reserve_vars.keys() )
-        cnsts.append( model.addConstr( 
-                grb.quicksum(reserve_vars[k] for k in T10_vars_by_hr ) >= T10_REQ, 
-                name="T10_Req" + "H" + str(iHr) ) )
-        T30_vars_by_hr = filter( lambda (name, hr, type): hr == iHr and 
-                                                    type in ("TMSR_CAP", "TMNSR_Cap", "TMOR_CAP"), 
-                                                    reserve_vars.keys())
-        cnsts.append ( model.addConstr( 
-                grb.quicksum(reserve_vars[k] for k in T30_vars_by_hr ) >= T30_REQ, 
-                                name="T10_Req" + "H" + str(iHr) ) )
-    return cnsts
-
 def reserveRequirementsAffine(model, reserve_vars, Udict):
     cnsts = []
     t1s, t2s, t3s, t4s = __addVecVars(model, 3 * HORIZON_LENGTH)
@@ -657,7 +709,6 @@ def reserveRequirementsAffine(model, reserve_vars, Udict):
                 Udict["gam1"], Udict["C"], "T30Req" + str(iHr), 
                 t1s[3 * iHr + 2], t2s[3 *iHr + 2], t3s[3* iHr + 2], t4s[3* iHr + 2] )
     return cnsts
-
 def reserveCapacityAffine(model, gen_dict, reserve_vars, res_cnsts, avg_load, kappa, gam1, C):
     """ No generator can offer more reserve of any type than its capacity allows."""
     numConstrs = sum(1 for g in gen_dict.values() if g.res_type == "GEN" and g.fuel_type <> "FixedImport")
@@ -687,126 +738,32 @@ def reserveCapacityAffine(model, gen_dict, reserve_vars, res_cnsts, avg_load, ka
                                                                     t1s[ix + 1], t2s[ix + 1], t3s[ix + 1], t4s[ix + 1])
     return res_cnsts
 
-def reserveCapacity(model, gen_dict, reserve_vars, res_cnsts):
-    """ No generator can offer more reserve of any type than its capacity allows."""
-    for name, gen in gen_dict.items():
-        if gen.res_type <> "GEN" or gen.fuel_type == "FixedImport":
-            continue
-        #Notice that the TMSR cap is already handled by the on-off
-        if gen.T10_Cap is not None:
-            for iHr in xrange(HORIZON_LENGTH):
-                model.addConstr( reserve_vars[name, iHr, "TMSR_Cap"] + 
-                                                    reserve_vars[name, iHr, "TMNSR_Cap"] <= gen.T10_Cap )
-        if gen.T30_Cap is not None:
-            for iHr in xrange(HORIZON_LENGTH):
-                model.addConstr( reserve_vars[name, iHr, "TMSR_Cap"] + 
-                                                    reserve_vars[name, iHr, "TMNSR_Cap"] +
-                                                    reserve_vars[name, iHr, "TMOR_Cap"] <= gen.T30_Cap )
-    return res_cnsts
-
-def solveSecondStage(model, balance_cnsts, gen_dict, prod_vars, new_load_by_hr, 
-                                              flex_loads, dec_vars_amt, inc_vars, on_vars, start_vars, stop_vars, 
-                                              reserve_cnsts, reserve_vars):
-    for cnst in balance_cnsts:
-        model.remove( cnst )
-
-    for cnst in reserve_cnsts:
-        model.remove( cnst )
-
-    #this seems risky but worth it
-    for var in reserve_vars.values():
-        model.remove(var)
-
-    #"Fixing" the model seems to destroy our handles
-    # try just manually constraining all binaries
-    for v in on_vars.values():
-        model.addConstr( v.x == v )
-    for v in start_vars.values():
-        model.addConstr( v.x == v)
-    for v in stop_vars.values():
-        model.addConstr( v.x == v)
-
-    slack, balance_cnsts2 = nominalLoadBalance(model, gen_dict, prod_vars, new_load_by_hr, 
-                                              flex_loads, dec_vars_amt, inc_vars)
-    return slack, balance_cnsts2, model
-
-def computeGenByHr(gen_dict, prod_vars, flex_loads, dec_vars_amt, inc_vars):
-    """Use the solved model to create a nice grid of generation type by day"""
-    prod_by_hour = Counter()
-    for name, hr in prod_vars.keys():
-        prod_by_hour[ "TOTAL", hr ] += prod_vars[name, hr].x
-
-    for name, hr in prod_vars.keys():
-        prod_by_hour[ gen_dict[name].fuel_type, hr ] += prod_vars[name, hr].x
-        
-    for name, hr in flex_loads:
-        prod_by_hour["FLEX", hr] += flex_loads[name, hr].x
-        
-    for name, hr in inc_vars.keys():
-        prod_by_hour["INC", int(hr.lstrip("H")) - 1] += inc_vars[name, hr].x
-    
-    for name, hr, in dec_vars_amt.keys():
-        prod_by_hour["DEC", int(hr.lstrip("H")) -1 ] += dec_vars_amt[name, hr].x    
-
-    return prod_by_hour
-
 #########################
 if __name__ == "__main__":
-    gen_dict = generator.doEverything(adjustRamp=True)
-    load_by_hr = readData.readLoads("ISO-data/pRandomAverage_v2.txt")    
+    TMSR_REQ = 622.5
+    T10_REQ  = 1245.
+    T30_REQ = 1883.
+    gen_dict = generator.doEverything()
+    generator.smallTestCase(gen_dict, load_by_hr, TMSR_REQ, T10_REQ, T30_REQ)
+    load_by_hr = readData.readLoads("../ISO-NE/pRandomAverage_v2.txt")    
+    dummy, load_by_hr = zip(*load_by_hr.items())
 
-#     m = grb.Model("UCNominal")
-#     on_vars, start_vars, stop_vars, cost_var = genStage1Vars( m, gen_dict )
-#     prod_vars, reserve_vars = genStage2VarsNom(m, gen_dict, True )
-#     variable_cost_vars = addPiecewiseCosts(m, gen_dict, prod_vars )
-#     startStopConstraints(m, gen_dict, on_vars, start_vars, stop_vars)
-#     ecoMinMaxConsts(m, gen_dict, prod_vars, on_vars, reserve_vars)
-#     minUpConstraints(m, gen_dict, on_vars)
-#     minDownConstraints(m, gen_dict, on_vars)
-#     flex_loads = genFlexibleDemandVarsNom( m, gen_dict )
-#     reserve_cnsts = reserveRequirements(m, gen_dict, reserve_vars)
-#     reserveCapacity(m, gen_dict, reserve_vars, reserve_cnsts)
-#     rampingConsts(m, gen_dict, prod_vars, start_vars, stop_vars)
-# #    dec_vars_amt, dec_vars_price = genDecVarsNom(m, gen_dict)
-# #    inc_vars = genIncVarsNom( m, gen_dict)
-#     dec_vars_amt = dec_vars_price = inc_vars = {}
-#     slack, balance_cnsts = nominalLoadBalance(m, gen_dict, prod_vars, load_by_hr, 
-#                                                         flex_loads, dec_vars_amt, inc_vars)
-#     m.update()
-#     m.printStats()
-#     m.params.mipgap = 1e-2
-#     m.optimize()
+### The Nominal Reserve Method
+#     nomUCModel = runUC.buildNominal(gen_dict, load_by_hr, TMSR_REQ, T10_REQ, T30_Req, includeIncDecs = False)
+#     nomUCModel.m.update()
+#     nomUCModel.m.printStats()
+#     nomUCModel.m.params.mipgap = 1e-2
+#     nomUCModel.m.optimize()
+#     for cnst in nomUCModel.balance_cnsts:
+#         model.remove( cnst )
+## VG add code here to extrac tthe solution and then solve the second stage problem
 
-#make a much sparser generator list.
-#     gens_2 = filter(lambda (n, g): g.res_type == "GEN" and g.fuel_type <> "FixedImport", 
-#                                     gen_dict.items() )
-#     gens_2 = dict(gens_2[:10])
-#     flex_loads = filter(lambda (n, g): g.res_type == "LOAD" and g.isFlexible, gen_dict.items() )
-#     gens_2.update(dict(flex_loads) )
-#     
-#     inc_vars = filter(lambda (n, g): g.res_type == "INC", gen_dict.items() )
-#     gens_2.update( dict(inc_vars[1:10] ) )
-#     
-#     dec_vars = filter( lambda (n, g): g.res_type == "DEC", gen_dict.items() )
-#     gens_2.update( dict( dec_vars[1:10] ) )
-#     len(gens_2)
-#     gen_dict = gens_2
-# 
-#     TMSR_REQ = 62.25
-#     T10_REQ  = 124.5
-#     T30_REQ = 188.3
-# 
-#     load_by_hr = readData.readLoads("ISO-data/pRandomAverage_v2.txt")    
-#     dummy, load_by_hr = zip(*load_by_hr.items())
-#     load_by_hr = [l / 15. for l in load_by_hr ]
-# 
-###  Now build an affine model
+
+###  The Affine Model
     eps = .05
     kappa = numpy.sqrt( 1/eps  -1 )
     gam1 = .0001
     C = numpy.eye(24) * 1.001
-    load_by_hr = readData.readLoads("ISO-data/pRandomAverage_v2.txt")    
-    dummy, load_by_hr = zip(*load_by_hr.items())
     Udict = {"kappa":kappa, "gam1":gam1, "C":C, "avg_load": load_by_hr}
 
     print "Building Affine Model"
