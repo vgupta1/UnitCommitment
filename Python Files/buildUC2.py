@@ -322,25 +322,22 @@ def genFlexibleDemandVarsNom( model, gen_dict ):
     return flex_loads
 
 def reserveRequirements(model, gen_dit, reserve_vars, TMSR_REQ, T10_REQ, T30_REQ):
-    cnsts = []
     for iHr in xrange(HORIZON_LENGTH):
         TMSR_vars_by_hr = filter( lambda (name, hr, type): hr == iHr and type == "TMSR_Cap", 
                                                         reserve_vars.keys() )
-        cnsts.append ( model.addConstr( 
-                grb.quicksum(reserve_vars[k] for k in TMSR_vars_by_hr ) >= TMSR_REQ ) )
+        model.addConstr( grb.quicksum(reserve_vars[k] for k in TMSR_vars_by_hr ) >= TMSR_REQ, 
+                                         name="TMSR_CAP " + "H" + str(iHr) )
         T10_vars_by_hr = filter( lambda (name, hr, type): hr == iHr and 
                                                     type in ("TMSR_CAP", "TMNSR_Cap"), 
                                                     reserve_vars.keys() )
-        cnsts.append( model.addConstr( 
-                grb.quicksum(reserve_vars[k] for k in T10_vars_by_hr ) >= T10_REQ, 
-                name="T10_Req" + "H" + str(iHr) ) )
+        model.addConstr( grb.quicksum(reserve_vars[k] for k in T10_vars_by_hr ) >= T10_REQ, 
+                name="T10_Req" + "H" + str(iHr) )
         T30_vars_by_hr = filter( lambda (name, hr, type): hr == iHr and 
                                                     type in ("TMSR_CAP", "TMNSR_Cap", "TMOR_CAP"), 
                                                     reserve_vars.keys())
-        cnsts.append ( model.addConstr( 
-                grb.quicksum(reserve_vars[k] for k in T30_vars_by_hr ) >= T30_REQ, 
-                                name="T10_Req" + "H" + str(iHr) ) )
-    return cnsts
+        model.addConstr( grb.quicksum(reserve_vars[k] for k in T30_vars_by_hr ) >= T30_REQ, 
+                                name="T10_Req" + "H" + str(iHr) )
+    return []
 
 def reserveCapacity(model, gen_dict, reserve_vars, res_cnsts):
     """ No generator can offer more reserve of any type than its capacity allows."""
@@ -433,7 +430,8 @@ def __buildNomNoLoad(gen_dict, TMSR_REQ, T10_REQ, T30_REQ, includeIncDecs, useRe
     else:
         dec_vars_amt = dec_vars_price = inc_vars = {}
 
-    rampingConsts(m, gen_dict, prod_vars, start_vars, stop_vars, sparseRamps)
+    #VG comment out now for consistency to affine.  
+#    rampingConsts(m, gen_dict, prod_vars, start_vars, stop_vars, sparseRamps)
     out = UCNomModel()
     out.model = m
     out.on_vars = on_vars
@@ -509,6 +507,15 @@ def __summarizeSolution(UCObj, gen_dict, slacks):
     for hour in xrange(len(slacks)):
         prod_by_hour["Slack", hour] += slacks[hour].x
 
+    #identify the three largest producers at hour 15 and just print to screen
+    cap_producers= {}
+    for name, hr in UCObj.on_vars.keys():
+        if hr <> 15:
+            continue
+        cap_producers[name] = gen_dict[name].eco_max["H16"]
+    t = sorted(cap_producers.items(), key = lambda (n, cap): cap, reverse=True)
+    print "Biggest Produers:\t", t[:3]                
+
     return on_vals, start_vals, UCObj.fixed_cost_var.x, UCObj.model.objVal, prod_by_hour, variable_costs
 
 def writeHourlyGens(file_out, label, prod_by_type):
@@ -565,6 +572,9 @@ def buildSolveNom(gen_dict, TMSR_REQ, T10_REQ, T30_Req, load_by_hr,
     
     return __summarizeSolution(nomUCObj, gen_dict, slacks)
 
+def calcResReqs(gen_dict, load_by_hr):
+    return buildSolveNom(gen_dict, 0, 0., 0., load_by_hr)    
+
 #right now build second stage as an ip and fix everything
 #check to see how much slower this is than a direct solution
 def updateSolveSecondStage( UCObj, new_load_by_hr, old_objs, start_vals, on_vals, gen_dict ):
@@ -575,41 +585,26 @@ def updateSolveSecondStage( UCObj, new_load_by_hr, old_objs, start_vals, on_vals
     old_objs = []
     on_vars = UCObj.on_vars
     for k, v in on_vars.items():
-        old_objs.append( model.addConstr( v == on_vals[k] ) )
+        old_objs.append( model.addConstr( v == round(on_vals[k] )) )
     start_vars = UCObj.start_vars
     for k, v in start_vars.items():
-        old_objs.append( model.addConstr( v == start_vals[k] ) )
+        old_objs.append( model.addConstr( v == round(start_vals[k] )) )
 
     slacks, balance_cnsts = __addLoadBalanceCnst( UCObj, gen_dict, new_load_by_hr )
     old_objs += slacks
     old_objs += balance_cnsts
-    
-    model.params.mipgap = 1e-2
     model.optimize()
+    pdb.set_trace()
+    
     
     return __summarizeSolution(UCObj, gen_dict, slacks), old_objs
 
-def buildAffineModel(gen_dict, TMSR_REQ, T10_REQ, T30_REQ, resids, eps, delta, 
-                                    includeIncDecs = False, sparseRamps = False, method="BSApprox", omitRamping=False, 
+def buildAffineModel(gen_dict, TMSR_REQ, T10_REQ, T30_REQ, resids, eps, delta, k, 
+                                    includeIncDecs = False, sparseRamps = False, omitRamping=False, 
                                     init_on = {}, init_start ={}):
     """builds and solves an affine modeling object.  Resulting object is reuseable iteration to iteration"""
     #build the uncertainty set and teh three functions
-    if method == "BSApprox":
-        uncSet = BertSimCutGen(resids, eps, delta * .5, delta * .5)
-    elif method == "CS":
-        uncSet = CSCutGen(resids, eps, delta * .5, delta * .5)
-    else:
-        raise NotImplementedError()
-
-    addVars = lambda m, n: uncSet.addVecVars(m, n)
-    def addLess(model, lhs, xs, rhs, sname, aux_vars=None):
-        return uncSet.addLessEqual(model, lhs, xs, rhs, sname, aux_vars) 
-    def addGreater(model, lhs, xs, rhs, sname, aux_vars=None):
-        return uncSet.addGreaterEqual(model, lhs, xs, rhs, sname, aux_vars) 
-    def addLessFast(model, lhs, xs, rhs, sname, norm_xs, std_xs):
-        return uncSet.addLessEqualFast(model, lhs, xs, rhs, sname, norm_xs, std_xs)
-    def addGreaterFast(model, lhs, xs, rhs, sname, norm_xs, std_xs):
-        return uncSet.addGreaterEqualFast(model, lhs, xs, rhs, sname, norm_xs, std_xs)
+    uncSet = SparseAffineCutGen(resids, eps, 5, delta * .5, delta * .5)
 
     #now construct the model
     print "Beginning Affine Model:"
@@ -621,59 +616,47 @@ def buildAffineModel(gen_dict, TMSR_REQ, T10_REQ, T30_REQ, resids, eps, delta,
 
     #Stage 2
     #build the norm variables for production because they're shared in many places
-    prod_vars, reserve_vars = genStage2VarsAffine( m, gen_dict )
-    temp_vars = uncSet.addVecVars( m, len(prod_vars ) )
-    prod_vars_norm = {}
-    for ix, k in enumerate(prod_vars):
-        prod_vars_norm[k] = uncSet.createNormVars(m, prod_vars[k][0], temp_vars[ix] )        
+    prod_vars, reserve_vars = genStage2VarsAffine( m, gen_dict, k )
 
     #reserves
-    res_cnsts = reserveRequirementsAffine(m, reserve_vars, TMSR_REQ, T10_REQ, T30_REQ, addVars, addLess, addGreater)
-    reserveCapacityAffine(m, gen_dict, reserve_vars, res_cnsts, addVars, addLess, addGreater)
+    reserveRequirementsAffine(m, reserve_vars, TMSR_REQ, T10_REQ, T30_REQ, uncSet)
+    reserveCapacityAffine(m, gen_dict, reserve_vars, uncSet)
 
     #ramping
     if not omitRamping:
-        rampingConstsAffine(m , gen_dict, prod_vars, start_vars, stop_vars,
-            addVars, addLess, addGreater, sparse=sparseRamps)
+        raise ValueError()
+#         rampingConstsAffine(m , gen_dict, prod_vars, start_vars, stop_vars,
+#             addVars, addLess, addGreater, sparse=sparseRamps)
 
     #flex_loads
-    flex_loads = genFlexibleDemandVarsAffine( m, gen_dict )
+    flex_loads = genFlexibleDemandVarsAffine( m, gen_dict, k )
     flex_loads_norm = {}
     temp_vars = uncSet.addVecVars( m, len(flex_loads) )
     for ix, k in enumerate(flex_loads):
         flex_loads_norm[k] = uncSet.createNormVars(m, flex_loads[k][0], temp_vars[ix] )
-    boundFlexDemandAffine( m, gen_dict, flex_loads, flex_loads_norm, addLessFast, addGreaterFast)
+    boundFlexDemandAffine( m, gen_dict, flex_loads, flex_loads_norm, uncSet)
 
     #eco Min Max
     ecoMinMaxConstsAffine(m, gen_dict, prod_vars, on_vars, reserve_vars, uncSet, M=1e4)
-
     #PiecewiseCosts
-    variable_cost_vars = addPiecewiseCostsAffine(m, gen_dict, prod_vars, addVars, addLess, addGreater)
-
+    variable_cost_vars = addPiecewiseCostsAffine(m, gen_dict, prod_vars, uncSet)
     #prep load balance
     slack, fvecs, fvecs_norm, gprod_sys = prepForLoadBalance(m, prod_vars, flex_loads, uncSet)
 
-    print "PrepLoadBalance"
-    m.update()
-    m.printStats()
-
     return ( m, gen_dict, prod_vars, flex_loads, on_vars, start_vars, stop_vars, 
-            cost_var, reserve_vars, res_cnsts, variable_cost_vars, slack, fvecs, fvecs_norm, gprod_sys, uncSet)
+            cost_var, reserve_vars, variable_cost_vars, slack, fvecs, fvecs_norm, gprod_sys, uncSet)
 
 def addSolveAffineLoadBalanceNaive(m, gen_dict, prod_vars, flex_loads, on_vars, start_vars, stop_vars, 
-                                                                    fixed_cost_var, reserve_vars, res_cnsts, avg_load_by_hr, variable_cost_vars, 
+                                                                    fixed_cost_var, reserve_vars, avg_load_by_hr, variable_cost_vars, 
                                                                     old_objs, slack, fvecs, fvecs_norm, gprod_sys, uncSet):
     for o in old_objs:
         m.remove(o)
-
     slacks, balance_objs = affineLoadBalanceNaive(m, gen_dict, fvecs, fvecs_norm, gprod_sys, slack, avg_load_by_hr, uncSet) 
 
-    print "Before Solve"
+    #DEBUG ONLY
     m.update()
     m.printStats()
 
-    m.params.timelimit = 600
-    m.params.mipgap = 1e-2
     m.optimize()
     return summarizeAffine(m, on_vars, start_vars, stop_vars, prod_vars, reserve_vars, variable_cost_vars, flex_loads, 
                                         fixed_cost_var, slacks), balance_objs    

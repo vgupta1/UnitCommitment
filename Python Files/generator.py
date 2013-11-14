@@ -3,12 +3,12 @@
 Defines a class for generators with some helper functions for initializing from .txt files
 """
 import pdb
-import csv
+import csv, math
+FUEL_TYPES = ("Steam", "CT", "CC", "Diesel", "Hydro", "Nuclear", "FixedImport")
 
 def getFuelType( gen_name ):
     """Translates: AES LOND_GR_RIDGE_9_99Steam to ("AES LOND_GR_RIDGE_9_99", "Steam") """
-    types = ("Steam", "CT", "Diesel", "Hydro", "Nuclear", "FixedImport")
-    for type in types:
+    for type in FUEL_TYPES:
         if type in gen_name:
             fuel_type = type
             indx = gen_name.find(type)
@@ -418,29 +418,37 @@ def doEverything():
 
     return gen_dict
 
-def smallTestCase( gen_dict, load_by_hr, TMSR_REQ, T10_REQ, T30_REQ, filt_percent=.1):
-    """Generates a muhc smaller test case to bug test algorithms
-    Everything done in place-ish"""
-    gens_2 = filter(lambda (n, g): g.res_type == "GEN" and g.fuel_type <> "FixedImport", 
+def smallTestCase( gen_dict, filt_percent=.1):
+    """Generates a smaller test case to test algorithms
+    Takes given percentage of each fuel-type and the flex loads and fixed loads
+    """
+    true_gens = filter(lambda (n, g): g.res_type == "GEN" and g.fuel_type <> "FixedImport", 
                                     gen_dict.items() )
-    gens_2 = dict(gens_2[: int( len(gens_2) * filt_percent ) ])
-    flex_loads = filter(lambda (n, g): g.res_type == "LOAD" and g.isFlexible, gen_dict.items() )
-    gens_2.update(dict(flex_loads) )
-    
-    inc_vars = filter(lambda (n, g): g.res_type == "INC", gen_dict.items() )
-    gens_2.update( dict(inc_vars[ :int( len(inc_vars) * filt_percent )] ) )
-    
-    dec_vars = filter( lambda (n, g): g.res_type == "DEC", gen_dict.items() )
-    gens_2.update( dict( dec_vars[ : int( len(dec_vars) * filt_percent ) ] ) )
-    len(gens_2)
-    gen_dict = gens_2
+    gens_filt = {}
+    tot_cap, tot_new_cap = 0., 0.
+    #For each fuel_type, filter down
+    for fuel in FUEL_TYPES:
+        gen_fuels = filter(lambda(n, g): g.fuel_type == fuel, true_gens )
+        gen_fuels_filt  = gen_fuels[:int(math.ceil(len(gen_fuels) * filt_percent)) ]
+        orig_cap = sum( max(g.eco_max.values() ) for n, g in gen_fuels)
+        new_cap = sum( max(g.eco_max.values() ) for n, g in gen_fuels_filt)
+        gens_filt.update( gen_fuels_filt )
+        tot_cap += orig_cap
+        tot_new_cap += new_cap
+        print fuel, orig_cap, new_cap, new_cap / (orig_cap + .0001 )
 
-    TMSR_REQ *=filt_percent
-    T10_REQ  *= filt_percent
-    T30_REQ *= filt_percent
-    load_by_hr = [l *filt_percent for l in load_by_hr ]
-
-    return gen_dict, load_by_hr, TMSR_REQ, T10_REQ, T30_REQ
+    flex_loads = filter(lambda (n, g): g.res_type =="LOAD" and g.isFlexible, gen_dict.items() )
+    flex_loads_filt = flex_loads[:int(math.ceil(len(flex_loads) * filt_percent))] 
+    gens_filt.update( flex_loads_filt )
+    orig_cap = sum( max(g.eco_max.values() ) for n, g in flex_loads )
+    new_cap = sum( max(g.eco_max.values() )  for n, g in flex_loads_filt )
+    tot_cap -= orig_cap
+    tot_new_cap -= new_cap
+    print "Flex Loads", orig_cap, new_cap, new_cap / orig_cap
+    print "total:", tot_cap, tot_new_cap, tot_new_cap / tot_cap
+    load_ratio = tot_new_cap / tot_cap
+    
+    return gens_filt, load_ratio
 
 ###########################################
 if __name__ == "__main__":
