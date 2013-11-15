@@ -5,20 +5,28 @@ import generator, buildUC2
 
 # read in the data and build a single model
 gen_dict_ = generator.doEverything()
-file_loads = csv.reader(open("../load_validate_set.csv", "rU") ) 
-file_loads.next() # burn one for the header
-avg_loads_by_hr = file_loads.next()
-avg_loads_by_hr = numpy.array([float(l) * 1e-3 for l in avg_loads_by_hr[2:26] ]) #drop the date column and row indx
-TMSR_REQ = 622.5 * 1e-3
-T10_REQ  = 1245. * 1e-3
-T30_REQ = 1883. * 1e-3
+
+#Load up the averages
+file_avg_loads = csv.reader(open("../load_means.csv", "rU") )
+file_avg_loads.next() #burn one for the header
+avg_loads_by_hr = []
+for line in file_avg_loads:
+    avg_loads_by_hr.append( float( line[1] ) * 1e-3 )
+avg_loads_by_hr = numpy.array(avg_loads_by_hr)
 
 #Thin it a bit
 gen_dict, load_ratio = generator.smallTestCase( gen_dict_, filt_percent = .1 )
 #buildUC2.calcResReqs(gen_dict, avg_loads_by_hr * load_ratio)
-TMSR_REQ = 0.683 * .5
-T10_REQ = 0.683
-T30_REQ = 0.683 + .5 * 0.638
+TMSR_REQ = (0.683 * .5)/2.
+T10_REQ = (0.683)/2.
+T30_REQ = (0.683 + .5 * 0.272)/2.
+
+#These represent the averages over the whole set
+# TMSR_REQ = 622.5 * 1e-3
+# T10_REQ  = 1245. * 1e-3
+# T30_REQ = 1883. * 1e-3
+
+
 
 print "\n Num Generators:\t", len(gen_dict)
 for iType in generator.FUEL_TYPES:
@@ -43,29 +51,25 @@ print numpy.mean(resids, axis=0)
 file_preds = csv.reader(open("../forestFit.csv", "rU"))
 file_preds.next() #burn a header
 
-# for each day in the validation set,
-old_objs = []
+file_loads = csv.reader(open("../load_validate.csv", "rU") ) 
+file_loads.next() # burn one for the header
+
+#output files
 file_out_costs = csv.writer(open("affine_backtest_costs.csv", "w"))
 file_out_costs.writerow(["Date", "Fixed", "Predicted", "Fixed", "Variable"])
-
 file_out = csv.writer(open("affine_backtest.csv", "w"))
 file_out.writerow([ "Date", "Type"] + ["H" + str(ix + 1) for ix in range(24) ] )
 
-#build the model for the second stage stuff
+#build one model for the nominal second stage stuff
 UC2obj =  buildUC2.__buildNomNoLoad(gen_dict, TMSR_REQ, T10_REQ, T30_REQ, False, True, False)
 
-#### Begin attempt to solve a nominal run for starting values for affine
-# (on_vals_init, start_vals_init, fixedCost, totCost, prod_by_hour, variable_costs) = buildUC2.buildSolveNom(
-#         gen_dict, TMSR_REQ, T10_REQ, T30_REQ, avg_loads_by_hr, includeIncDecs = False, 
-#         useReserve = True, sparseRamps = True)
-
-#### end solve nominal run for starting values for affine
 #build one model for the affine stuff
 (m, gen_dict, prod_vars, flex_loads, on_vars, start_vars, stop_vars, 
                 fixed_cost_var, reserve_vars, variable_cost_vars, slack, fvecs ,fvecs_norm, gprod_sys, uncSet) = (
                 buildUC2.buildAffineModel(gen_dict, TMSR_REQ, T10_REQ, T30_REQ, resids, eps, delta, 5, 
                                                                 omitRamping=True) )
 
+# for each day in the validation set,
 old_objs_affine = []
 old_objs_nom = []
 for ix, (line_load, line_fit) in enumerate(zip(file_loads, file_preds)):

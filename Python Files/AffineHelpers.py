@@ -634,7 +634,7 @@ def reserveRequirementsAffine(model, reserve_vars, TMSR_REQ, T10_REQ, T30_REQ, U
 def reserveCapacityAffine(model, gen_dict, reserve_vars, USet ):
     """ No generator can offer more reserve of any type than its capacity allows."""
     true_gens = filter( lambda g: g.res_type == "GEN" and g.fuel_type <> "FixedImport", gen_dict.values() )
-    aux_vars = USet.addVecVars(model, 2 * len(true_gens) * HORIZON_LENGTH)
+    aux_vars = USet.addVecVars(model, 4 * len(true_gens) * HORIZON_LENGTH)
     ix = 0
     for gen in true_gens:
         name = gen.name
@@ -663,7 +663,14 @@ def reserveCapacityAffine(model, gen_dict, reserve_vars, USet ):
             f_tot = numpy.array(f) + numpy.array(f2)+ numpy.array(f3)
             t1, t2 = USet.createNormVars(model, f_tot, aux_vars[ix + 1] )
             USet.addLessEqualFast(model, g + g2 + g3, f_tot, T30_Cap, "T30_Cap" + name + str(iHr), t1, t2 )
-            ix +=2
+
+            #Must produce positive amounts of each reserve product
+            t1, t2 = USet.createNormVars(model, f2, aux_vars[ix + 2] )
+            USet.addGreaterEqualFast(model, g2, f2, 0., "TMNSRNonNeg" + name + str(iHr), t1, t2)
+            t1, t2 = USet.createNormVars(model, f3, aux_vars[ix + 3] )
+            USet.addGreaterEqualFast(model, g3, f3, 0., "TMORNonNeg" + name + str(iHr), t1, t2)
+
+            ix +=4
 
 
 def addPiecewiseCostsAffine(model, gen_dict, prod_vars, USet):
@@ -737,6 +744,26 @@ def summarizeAffine(model, on_vars, start_vars, stop_vars, prod_vars, reserve_va
         if ("Slack", hour) not in prod_by_hour:
             prod_by_hour["Slack", hour] = 0
         prod_by_hour["Slack", hour] += slacks[hour].x
+
+    #look at the reserve produced in hour 17
+    print "\n \n Total Reserve By Type, Hr 17"
+    res_tally = Counter()
+    for (name, hr, type) in reserve_vars:
+        if hr == 17:
+            res_tally[type] += reserve_vars[name, hr, type][1].x
+    for k,v in res_tally.items():
+        print k, v
+
+    print "Total Produced By Generator, Hr 17"
+    gen_tally = Counter()
+    for (name, hr) in prod_vars:
+        if hr == 17:
+            gen_tally[name,hr] += (prod_vars[name, hr][1].x + 
+                                                    reserve_vars[name, hr, "TMSR_Cap"][1].x +
+                                                    reserve_vars[name, hr, "TMNSR_Cap"][1].x +
+                                                    reserve_vars[name, hr, "TMOR_Cap"][1].x)
+    for k, v in gen_tally.items():
+        print k, v
 
     return on_vals, start_vals, fixed_cost_var.x, model.objVal, prod_by_hour, variable_costs
 
