@@ -654,15 +654,15 @@ def reserveCapacityAffine(model, gen_dict, reserve_vars, USet ):
                 model.addConstr(g3 == 0)
                 continue   #this setup screws up some of the ix... we wont' use all of them.
 
-            T10_Cap = min(gen.T10_Cap, gen.eco_max["H%d" % (iHr + 1)] )
-            f_tot = numpy.array(f) + numpy.array(f2)
-            t1, t2 = USet.createNormVars(model, f_tot, aux_vars[ix] )
-            USet.addLessEqualFast(model, g + g2, f_tot, T10_Cap, "T10_Cap" + name + "H" + str(iHr), t1, t2 )
-
-            T30_Cap = min(gen.T30_Cap, gen.eco_max["H%d" % (iHr + 1)] )
-            f_tot = numpy.array(f) + numpy.array(f2)+ numpy.array(f3)
-            t1, t2 = USet.createNormVars(model, f_tot, aux_vars[ix + 1] )
-            USet.addLessEqualFast(model, g + g2 + g3, f_tot, T30_Cap, "T30_Cap" + name + str(iHr), t1, t2 )
+#             T10_Cap = min(gen.T10_Cap, gen.eco_max["H%d" % (iHr + 1)] )
+#             f_tot = numpy.array(f) + numpy.array(f2)
+#             t1, t2 = USet.createNormVars(model, f_tot, aux_vars[ix] )
+#             USet.addLessEqualFast(model, g + g2, f_tot, T10_Cap, "T10_Cap" + name + "H" + str(iHr), t1, t2 )
+# 
+#             T30_Cap = min(gen.T30_Cap, gen.eco_max["H%d" % (iHr + 1)] )
+#             f_tot = numpy.array(f) + numpy.array(f2)+ numpy.array(f3)
+#             t1, t2 = USet.createNormVars(model, f_tot, aux_vars[ix + 1] )
+#             USet.addLessEqualFast(model, g + g2 + g3, f_tot, T30_Cap, "T30_Cap" + name + str(iHr), t1, t2 )
 
             #Must produce positive amounts of each reserve product
             t1, t2 = USet.createNormVars(model, f2, aux_vars[ix + 2] )
@@ -767,3 +767,10 @@ def summarizeAffine(model, on_vars, start_vars, stop_vars, prod_vars, reserve_va
 
     return on_vals, start_vals, fixed_cost_var.x, model.objVal, prod_by_hour, variable_costs
 
+def addMIPStart(model, init_on, init_start, on_vars, start_vars):
+    for key, val in init_on.items():
+#        m.addConstr( on_vars[key] == round(val) )
+        on_vars[key].start = round(val)
+    for key,val in init_start.items():
+#        m.addConstr( start_vars[key] == round(val) )
+        start_vars[key].start = round(val) 

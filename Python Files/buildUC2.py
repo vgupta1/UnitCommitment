@@ -14,7 +14,7 @@ from AffineHelpers import *
 HORIZON_LENGTH = 24
 EPSILON_ZERO = 0.
 PENALTY = 5
-TOL = 1e-2
+TOL = 1e-5
 
 ## To Do
 #Redo the read in data to only use hrs 0 to 23 to index everything.  No "Hr24" stuff.
@@ -345,15 +345,13 @@ def reserveCapacity(model, gen_dict, reserve_vars, res_cnsts):
         if gen.res_type <> "GEN" or gen.fuel_type == "FixedImport":
             continue
         #Notice that the TMSR cap is already handled by the on-off
-        if gen.T10_Cap is not None:
-            for iHr in xrange(HORIZON_LENGTH):
-                model.addConstr( reserve_vars[name, iHr, "TMSR_Cap"] + 
-                                                    reserve_vars[name, iHr, "TMNSR_Cap"] <= gen.T10_Cap )
-        if gen.T30_Cap is not None:
-            for iHr in xrange(HORIZON_LENGTH):
-                model.addConstr( reserve_vars[name, iHr, "TMSR_Cap"] + 
-                                                    reserve_vars[name, iHr, "TMNSR_Cap"] +
-                                                    reserve_vars[name, iHr, "TMOR_Cap"] <= gen.T30_Cap )
+        for iHr in xrange(HORIZON_LENGTH):
+            model.addConstr( reserve_vars[name, iHr, "TMSR_Cap"] + 
+                                                reserve_vars[name, iHr, "TMNSR_Cap"] <= gen.T10_Cap )
+        for iHr in xrange(HORIZON_LENGTH):
+            model.addConstr( reserve_vars[name, iHr, "TMSR_Cap"] + 
+                                                reserve_vars[name, iHr, "TMNSR_Cap"] +
+                                                reserve_vars[name, iHr, "TMOR_Cap"] <= gen.T30_Cap )
     return res_cnsts
 
 def rampingConsts(model, gen_dict, prod_vars, start_vars, stop_vars, sparse):
@@ -390,7 +388,11 @@ def ecoMinMaxConsts(model, gen_dict, prod_vars, on_vars, reserve_vars):
         sHr = "H" + str(iHr + 1)
         reserve = grb.quicksum(reserve_vars[name, iHr, type] 
                             for type in generator.GenUnit.RESERVE_PRODUCTS)
-        eco_max_dict = gen_dict[name].eco_max
+        if gen_dict[name].eco_max[sHr] < TOL:
+            model.addConstr(on_vars[name, iHr] == 0 )
+            model.addConstr(prod_vars[name, iHr] == 0 )
+            model.addConstr(reserve == 0)
+            continue
         model.addConstr( on_vars[name, iHr] * gen_dict[name].eco_min[sHr] <=
                                           prod_vars[name, iHr] + reserve, 
                                           name="EcoMin" + name + "H" + str(iHr) )  
@@ -402,8 +404,6 @@ def ecoMinMaxConsts(model, gen_dict, prod_vars, on_vars, reserve_vars):
             model.addConstr( reserve_vars[name, iHr, "TMSR_Cap"] <= 
                 on_vars[name, iHr] * gen_dict[name].TMSR_Cap, 
                 name="SpinningReserve" + "name" + sHr )
-        reserve = grb.quicksum(reserve_vars[name, iHr, type] 
-                            for type in generator.GenUnit.RESERVE_PRODUCTS)
 
 def __buildNomNoLoad(gen_dict, TMSR_REQ, T10_REQ, T30_REQ, includeIncDecs, useReserve, sparseRamps):
     """ Builds the nominal version of the capacity model
@@ -431,7 +431,7 @@ def __buildNomNoLoad(gen_dict, TMSR_REQ, T10_REQ, T30_REQ, includeIncDecs, useRe
         dec_vars_amt = dec_vars_price = inc_vars = {}
 
     #VG comment out now for consistency to affine.  
-#    rampingConsts(m, gen_dict, prod_vars, start_vars, stop_vars, sparseRamps)
+    rampingConsts(m, gen_dict, prod_vars, start_vars, stop_vars, sparseRamps)
     out = UCNomModel()
     out.model = m
     out.on_vars = on_vars
@@ -549,21 +549,26 @@ def writeHourlyGens(file_out, label, prod_by_type):
         [ prod_by_type["Slack", hr] for hr in xrange(HORIZON_LENGTH) ] )
 
 
+def writeHourlySchedCap(file_out, label, on_vals, gen_dict):
+    #tally the amount of scheduled capacity by fuel_type
+    cap_tally = Counter()
+    for (name, iHr), val in on_vals.items():
+        if round(val) > .5:
+            cap_tally[iHr, gen_dict[name].fuel_type ] += gen_dict[name].eco_max["H%d" % (iHr + 1) ]
+
+    fuel_types = set( fuel for (hr, fuel) in cap_tally )
+    for fuel in fuel_types:
+        file_out.writerow([label, fuel] + [cap_tally[hr, fuel] for hr in xrange(HORIZON_LENGTH) ] )        
+
 ############  the real workers
-def buildSolveNom(gen_dict, TMSR_REQ, T10_REQ, T30_Req, load_by_hr, 
+def buildSolveNom(gen_dict, TMSR_REQ, T10_REQ, T30_REQ, load_by_hr, 
                                     includeIncDecs = False, useReserve = True, sparseRamps = False):
     """Builds and solves nominal model from scratch.  Returns
     on_vals[name, hr], start_vals[name, hr], fixed cost, tot_cost, prod_by_hour[fuel_type, hr], variable_costs[hr]
     """
-    nomUCObj = __buildNomNoLoad(gen_dict, TMSR_REQ, T10_REQ, T30_Req, includeIncDecs, useReserve, sparseRamps)                               
+    nomUCObj = __buildNomNoLoad(gen_dict, TMSR_REQ, T10_REQ, T30_REQ, includeIncDecs, useReserve, sparseRamps)                               
     slacks, cnsts = __addLoadBalanceCnst( nomUCObj, gen_dict, load_by_hr)                            
     
-    #BEGIN DEBUG
-    nomUCObj.model.printStats()
-    #END DEBUG
-
-    nomUCObj.model.params.mipgap = 1e-2
-
     #add the callback if necessary
     if sparseRamps:
         nomUCObj.model.optimize( lambda model, where: nomUCObj.rampingCallback(gen_dict, where) )
@@ -594,14 +599,11 @@ def updateSolveSecondStage( UCObj, new_load_by_hr, old_objs, start_vals, on_vals
     old_objs += slacks
     old_objs += balance_cnsts
     model.optimize()
-    pdb.set_trace()
-    
-    
+
     return __summarizeSolution(UCObj, gen_dict, slacks), old_objs
 
 def buildAffineModel(gen_dict, TMSR_REQ, T10_REQ, T30_REQ, resids, eps, delta, k, 
-                                    includeIncDecs = False, sparseRamps = False, omitRamping=False, 
-                                    init_on = {}, init_start ={}):
+                                    includeIncDecs = False, sparseRamps = False, omitRamping=False):
     """builds and solves an affine modeling object.  Resulting object is reuseable iteration to iteration"""
     #build the uncertainty set and teh three functions
     uncSet = SparseAffineCutGen(resids, eps, 5, delta * .5, delta * .5)
@@ -609,7 +611,7 @@ def buildAffineModel(gen_dict, TMSR_REQ, T10_REQ, T30_REQ, resids, eps, delta, k
     #now construct the model
     print "Beginning Affine Model:"
     m = grb.Model("Affine")
-    on_vars, start_vars, stop_vars, cost_var = genStage1Vars( m, gen_dict, init_on, init_start )
+    on_vars, start_vars, stop_vars, cost_var = genStage1Vars( m, gen_dict )
     startStopConstraints(m, gen_dict, on_vars, start_vars, stop_vars)
     minUpConstraints(m, gen_dict, on_vars)
     minDownConstraints(m, gen_dict, on_vars)

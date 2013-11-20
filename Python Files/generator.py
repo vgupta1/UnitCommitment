@@ -416,6 +416,10 @@ def doEverything():
     addOfferBlocks( "../AndysGenInstance/pEnergyBidPrice.txt", "../AndysGenInstance/pEnergyBidSize.txt", gen_dict)
     fixRampRates(gen_dict)
 
+    for g in gen_dict.values():
+        if g.res_type=="GEN" and g.fuel_type <> "FixedImport" and max(g.eco_max.values() ) < .001:
+            del gen_dict[ g.name ] 
+
     return gen_dict
 
 def smallTestCase( gen_dict, filt_percent=.1):
@@ -429,7 +433,16 @@ def smallTestCase( gen_dict, filt_percent=.1):
     #For each fuel_type, filter down
     for fuel in FUEL_TYPES:
         gen_fuels = filter(lambda(n, g): g.fuel_type == fuel, true_gens )
-        gen_fuels_filt  = gen_fuels[:int(math.ceil(len(gen_fuels) * filt_percent)) ]
+        if fuel in ("Steam", "Hydro", "FixedImport"):
+            gen_fuels_filt  = gen_fuels[:int(math.ceil(len(gen_fuels) * filt_percent)) ]
+        elif fuel == "Nuclear":
+            gen_fuels_filt  = gen_fuels[:3 ]
+        elif fuel in ("CT", "CC", "Diesel"):
+            num = min(10, len(gen_fuels) )
+            gen_fuels_filt = gen_fuels[:num]                   
+        else:
+            print ValueError("fuel")
+
         orig_cap = sum( max(g.eco_max.values() ) for n, g in gen_fuels)
         new_cap = sum( max(g.eco_max.values() ) for n, g in gen_fuels_filt)
         gens_filt.update( gen_fuels_filt )
