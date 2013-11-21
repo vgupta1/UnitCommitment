@@ -2,31 +2,26 @@
 
 Defines a class for generators with some helper functions for initializing from .txt files
 """
-import pdb
-import csv, math
-FUEL_TYPES = ("Steam", "CT", "CC", "Diesel", "Hydro", "Nuclear", "FixedImport")
+import pdb, csv, math
+from config import *
 
-def getFuelType( gen_name ):
+def getFuelType( name_fuel ):
     """Translates: AES LOND_GR_RIDGE_9_99Steam to ("AES LOND_GR_RIDGE_9_99", "Steam") """
     for type in FUEL_TYPES:
-        if type in gen_name:
+        if type in name_fuel:
             fuel_type = type
-            indx = gen_name.find(type)
-            gen_name = gen_name[:indx]
+            indx = name_fuel.find(type)
+            name_fuel = name_fuel[:indx]
             break
-    else: #matches the for
+    else: # Might be a load or something else.
         fuel_type = "Other"
-
-    return (gen_name, fuel_type)    
+    return (name_fuel, fuel_type)    
 
 class StartUpBlock:
     """ Simple Struct"""
-    def __init__(self):
-        self.offHr = None
-        self.cost = None
-        self.time = None
-        self.noti = None
-        self.num = None  #Store the block number
+    def __init__(self, offHr, cost, time, noti, blockNum):
+        self.offHr, self.cost, self.time, self.noti, self.num = (
+            offHr, cost, time, noti, blockNum )
 
 class OfferBlock:
     """ Simple Struct"""
@@ -34,34 +29,24 @@ class OfferBlock:
         self.size, self.price, self.num = size, price, blockNum
 
 class GenUnit:
-    """ A generation unit is defined by
-            - name
-            - fuel_type
-            - Min up/min down run time
-            - Ramp rates
-            - Eco min/max
-            - bid curves for each time of day
-            - perhaps more.
-            
+    """ A generation unit is defined by various pieces of info
         This struct collects all of this information
     """
     #Class Constant
-    CAP_TYPES  = ("TMSR_Cap", "TMNSR_Cap", "TMOR_Cap", "T10_Cap", "T30_Cap")
     RESERVE_PRODUCTS = ("TMSR_Cap", "TMNSR_Cap", "TMOR_Cap")
     RESERVE_REQUIREMENTS = ("TMSR_Cap", "T10_Cap", "T30_Cap")
         
-    def __init__(self, name):
+    def __init__(self, name, fuel_type):
         self.name = name.strip()
 
         #dictionaries indexed by hour
-        self.eco_max = {}
-        self.eco_min = {}
-        self.fixed_energy={}
+        self.eco_max, self.eco_min, self.fixed_energy={}, {}, {}
 
         #The Reserve capacities
         #Although listed as dictionary by time, real data is a constant for day
-        for type in GenUnit.RESERVE_REQUIREMENTS:
-            self.__dict__[type] = None
+        #VG DELETE THESE
+#         for type in GenUnit.RESERVE_REQUIREMENTS:
+#             self.__dict__[type] = None
 
         #List of hours must run
         self.mustRun=[]
@@ -74,7 +59,7 @@ class GenUnit:
 
         #constants
         self.reserveBidSize = 0.0
-        self.fuel_type, self.res_type = None, None
+        self.fuel_type, self.res_type = fuel_type, None
         self.max_energy = None
         self.max_start = None
         self.init_online = None
@@ -89,22 +74,18 @@ class GenUnit:
 def createGenerators( resources_path ):
     gen_dict = {}
     gen_file = open(resources_path, 'rU')
-    #burn a line.
-    gen_file.readline()
+    gen_file.readline()    #burn a line.
 
-    #First go thorugh and create the generator entry and a block entry
     for line in gen_file:
-        #end of file signified by this character
         if "/;" in line:
-            break
+            break         #EOF Character
+
         gen_name, fuel_type = getFuelType( line.strip() )
         gen_name = gen_name.strip("'")
         if gen_name in gen_dict:
             raise RunTimeError("Generator %s listed twice." % gen_name)
         else:
-            g = GenUnit(gen_name)
-            g.fuel_type = fuel_type
-            gen_dict[ gen_name ] = g    
+            gen_dict[gen_name] = GenUnit(gen_name, fuel_type)
     return gen_dict
 
 def parseGen( line, hasTime, isFloatParam, scaling ):
@@ -120,26 +101,25 @@ def parseGen( line, hasTime, isFloatParam, scaling ):
         if hasTime:
             gen_name, time = gen_name.split(".")
             time = time.strip()
-            time = time.strip("'")
+            time = time.strip("'")        
+            if "H" in time:
+                time = int(time.lstrip("H")) - 1
+            else:
+                raise RuntimeError("Time Indx without 'H' ")
         else:
             time = None
-        
-        #strip leading quoation marks
         gen_name, fuel_type = getFuelType( gen_name.strip() )
         gen_name = gen_name.strip("'")
-
         return gen_name, fuel_type, param, time
         
 def addGenParameter( param_path, param_name, gen_dict, hasTime=True, isFloatParam=True, scaling=1. ):
     """Assumes a listing by generator and time and a parameter.  Useful for Ecomax, econmin"""
     gen_file = open(param_path, 'rU')
-    #burn a line.
-    gen_file.readline()
+    gen_file.readline()    #burn a line.
     
     for line in gen_file:
-        #end of file signified by this character
         if "/;" in line:
-            break
+            break       #EOF character
 
         gen_name, fuel_type, param, time = parseGen( line, hasTime, isFloatParam, scaling )
         if gen_name not in gen_dict:
@@ -147,6 +127,11 @@ def addGenParameter( param_path, param_name, gen_dict, hasTime=True, isFloatPara
         else:
             g = gen_dict[ gen_name ]
         
+        ##VG DEBUG
+        if not hasattr(g, param_name):
+            raise RuntimeError("%s does not have parameter %s" % (g.name, param_name) )
+        ## END DEWBUG
+
         #add the info corresponding to the time.
         if hasTime:
             #check to see if the requisite dictionary on object already, else add it.
@@ -167,16 +152,15 @@ def addReserveCap(param_path, gen_dict, scaling=1.):
     gen_file.readline()
     
     for line in gen_file:
-        #end of file signified by this character
         if "/;" in line:
-            break
+            break   #EOF Character
 
         t = line.split()
         s_value = t[-1]
         indx = line.rfind(s_value)
         gen_name = line[:indx].strip()
         gen_name, cap_type, time = gen_name.split(".")
-        if cap_type not in GenUnit.CAP_TYPES:
+        if cap_type not in GenUnit.RESERVE_REQUIREMENTS:
             raise RuntimeError("Cap type %s not found" % cap_type)
         gen_name = gen_name.strip("'")
         gen_name, fuel_type = getFuelType(gen_name)
@@ -185,10 +169,12 @@ def addReserveCap(param_path, gen_dict, scaling=1.):
         else:
             g = gen_dict[ gen_name ]
         
-        #check to see if already set
-        if g.__dict__[cap_type] is not None:
-            raise RuntimeError("Parameter set twice.")
-        g.__dict__[cap_type] = float(s_value) * scaling
+        #May already be set because data is by hour and we ignore hourly
+        if hasattr(g, cap_type):
+            if abs(getattr(g, cap_type) - float(s_value) * scaling) > 1e-8:
+                print g.name, getattr(g, cap_type), float(s_value) * scaling, time
+            assert abs( getattr(g, cap_type) - float(s_value) * scaling) < 1e-8
+        setattr(g, cap_type, float(s_value) * scaling)
 
     return gen_dict
 
@@ -214,10 +200,8 @@ def addFlexReserves(param_path, gen_dict):
     """ This is the set under SetFlexReserve. Appears to be a subest of 
     SetFlexEgr.  Everything is one of the Type ((TMSR,TMNSR,TMOR)"""
     gen_file = open(param_path, 'rU')
-    #burn a line.
-    gen_file.readline()
-    
-    #First go thorugh and create the generator entry and a block entry
+    gen_file.readline()    #burn a line.
+
     for line in gen_file:
         #end of file signified by this character
         if "/;" in line:
@@ -252,8 +236,7 @@ def addMustRunHours(param_path, gen_dict):
 
 def addReserveBidSizes(param_path, gen_dict):
     gen_file = open(param_path, 'rU')
-    #burn a line.
-    gen_file.readline()
+    gen_file.readline()    #burn a line.
     
     for line in gen_file:
         #end of file signified by this character
@@ -315,13 +298,12 @@ def addStartUpBlocks( offHoursCurve_path, costs_path, time_path,
         if gen_name not in gen_dict:
             raise RuntimeError("Generator %s not found" % gen_name)
         else:
-            sblock = StartUpBlock()
-            sblock.offHr = float( line_offHrs[indx_offHrs:] )
-            sblock.cost = float( line_costs[indx_costs:] ) * scaling
-            sblock.time = float( line_times[indx_times:] )
-            sblock.noti = float( line_noti[indx_noti:] )
-            sblock.num = int( blocknum )
-            gen_dict[ gen_name ].startupblocks.append( sblock )
+            offHr = float( line_offHrs[indx_offHrs:] )
+            cost = float( line_costs[indx_costs:] ) * scaling
+            time = float( line_times[indx_times:] )
+            noti = float( line_noti[indx_noti:] )
+            num = int( blocknum )
+            gen_dict[ gen_name ].startupblocks.append( StartUpBlock(offHr, cost, time, noti, num) )
 
     #go back through and reorder everybody
     for g in gen_dict.values():
@@ -377,14 +359,14 @@ def fixRampRates(gen_dict):
             continue
 
         max_diff = ramp_rate
-        for iHr in xrange(24):
-            eco_min = gen.eco_min["H" + str(iHr + 1)] 
-            eco_max_p = gen.eco_max["H" + str(iHr + 2)]
+        for iHr in xrange(HORIZON_LENGTH):
+            eco_min = gen.eco_min[iHr] 
+            eco_max_p = gen.eco_max[iHr + 1]
             #check the ramping down constraints
             max_diff = max(eco_min - eco_max_p, max_diff)
 
-            eco_max = gen.eco_max["H" + str(iHr + 1)] 
-            eco_min_p = gen.eco_min["H" + str(iHr + 2)]
+            eco_max = gen.eco_max[iHr] 
+            eco_min_p = gen.eco_min[iHr + 1]
             #check the ramping up constraints
             max_diff = max(eco_min_p - eco_max, max_diff)
 

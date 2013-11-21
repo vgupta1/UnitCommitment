@@ -10,14 +10,9 @@ import gurobipy as grb
 from collections import  Counter
 import generator, readData 
 from AffineHelpers import *
-
-HORIZON_LENGTH = 24
-EPSILON_ZERO = 0.
-PENALTY = 5
-TOL = 1e-5
+from config import *
 
 ## To Do
-#Redo the read in data to only use hrs 0 to 23 to index everything.  No "Hr24" stuff.
 # Cold/warm/hot starts
 # Incorporate startup times correctly
 # Revisit the eco-min max constraints.  Are these locally ideal?  Use union of polyhedra results.
@@ -191,7 +186,7 @@ def startStopConstraints(m, gen_dict, on_vars, start_vars, stop_vars):
             m.addConstr( stop_vars[name, iHr] <= 1 - on_vars[name, iHr] )
             #check for eco_max values
             #the on_vars is handled in the eco-min_max constraints
-            if gen.eco_max["H" + str(iHr + 1 )] < TOL:
+            if gen.eco_max[iHr] < TOL:
                 m.addConstr( start_vars[name, iHr] == 0 )
     return m            
 
@@ -315,8 +310,8 @@ def genFlexibleDemandVarsNom( model, gen_dict ):
         
         #these flex loads have a single block bid structure
         for iHr in range(HORIZON_LENGTH):
-            flex_loads[name, iHr] = model.addVar(lb=gen.eco_min["H" + str(iHr + 1)], 
-                                                                                 ub = gen.eco_max["H" + str(iHr + 1)], 
+            flex_loads[name, iHr] = model.addVar(lb=gen.eco_min[iHr ], 
+                                                                                 ub = gen.eco_max[iHr], 
                                                                                  obj=-gen.offerBlocks.values()[0][0].price, 
                                                                                  name="FlexLoad" + name + "H" + str(iHr) )
     return flex_loads
@@ -363,10 +358,10 @@ def rampingConsts(model, gen_dict, prod_vars, start_vars, stop_vars, sparse):
         #ignore ramping constraints for the first slice.
         for hr in xrange(1, HORIZON_LENGTH):
             ##VG This logic is partially duplicated in "fixRampRates of generator.py"
-            eco_min_m = gen.eco_min["H" + str(hr)]
-            eco_max_m = gen.eco_max["H" + str(hr)] 
-            eco_min = gen.eco_min["H" + str(hr + 1)]
-            eco_max = gen.eco_max["H" + str(hr + 1)]
+            eco_min_m = gen.eco_min[hr - 1]
+            eco_max_m = gen.eco_max[hr - 1] 
+            eco_min = gen.eco_min[hr]
+            eco_max = gen.eco_max[hr]
             if eco_max <= TOL: #won't run anyway
                 continue
             if gen.ramp_rate < eco_max_m - eco_min:
@@ -385,25 +380,24 @@ def ecoMinMaxConsts(model, gen_dict, prod_vars, on_vars, reserve_vars):
     """
     #VG Right now no on_vars for nonstandard generation.  Later update
     for name, iHr in on_vars.keys():
-        sHr = "H" + str(iHr + 1)
         reserve = grb.quicksum(reserve_vars[name, iHr, type] 
                             for type in generator.GenUnit.RESERVE_PRODUCTS)
-        if gen_dict[name].eco_max[sHr] < TOL:
+        if gen_dict[name].eco_max[iHr] < TOL:
             model.addConstr(on_vars[name, iHr] == 0 )
             model.addConstr(prod_vars[name, iHr] == 0 )
             model.addConstr(reserve == 0)
             continue
-        model.addConstr( on_vars[name, iHr] * gen_dict[name].eco_min[sHr] <=
+        model.addConstr( on_vars[name, iHr] * gen_dict[name].eco_min[iHr] <=
                                           prod_vars[name, iHr] + reserve, 
                                           name="EcoMin" + name + "H" + str(iHr) )  
         model.addConstr( prod_vars[name, iHr]  + reserve <= 
-                                         on_vars[name, iHr] * gen_dict[name].eco_max[sHr], 
+                                         on_vars[name, iHr] * gen_dict[name].eco_max[iHr], 
                                          name="Ecomax" + name + "H" + str(iHr) )
         #you need to be on in order to offer spinning reserve
         if (name, iHr, "TMSR_Cap") in reserve_vars:
             model.addConstr( reserve_vars[name, iHr, "TMSR_Cap"] <= 
                 on_vars[name, iHr] * gen_dict[name].TMSR_Cap, 
-                name="SpinningReserve" + "name" + sHr )
+                name="SpinningReserve" + "name" + str(iHr) )
 
 def __buildNomNoLoad(gen_dict, TMSR_REQ, T10_REQ, T30_REQ, includeIncDecs, useReserve, sparseRamps):
     """ Builds the nominal version of the capacity model
@@ -512,7 +506,7 @@ def __summarizeSolution(UCObj, gen_dict, slacks):
     for name, hr in UCObj.on_vars.keys():
         if hr <> 15:
             continue
-        cap_producers[name] = gen_dict[name].eco_max["H16"]
+        cap_producers[name] = gen_dict[name].eco_max[hr]
     t = sorted(cap_producers.items(), key = lambda (n, cap): cap, reverse=True)
     print "Biggest Produers:\t", t[:3]                
 
@@ -554,7 +548,7 @@ def writeHourlySchedCap(file_out, label, on_vals, gen_dict):
     cap_tally = Counter()
     for (name, iHr), val in on_vals.items():
         if round(val) > .5:
-            cap_tally[iHr, gen_dict[name].fuel_type ] += gen_dict[name].eco_max["H%d" % (iHr + 1) ]
+            cap_tally[iHr, gen_dict[name].fuel_type ] += gen_dict[name].eco_max[iHr ]
 
     fuel_types = set( fuel for (hr, fuel) in cap_tally )
     for fuel in fuel_types:

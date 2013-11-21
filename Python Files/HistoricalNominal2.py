@@ -1,17 +1,17 @@
 """ Historical analysis of Nominal Problem
 """
-import pdb, csv, numpy
+import pdb, csv, numpy, sys
 import generator, buildUC2
 
 # read in the data and build a single model
 gen_dict = generator.doEverything()
 load_ratio = 1.0
-
-#thin the example
-#gen_dict, load_ratio = generator.smallTestCase( gen_dict_, filt_percent = .1 )
 TMSR_REQ = (1.245 * .5)
 T10_REQ = (1.245)
 T30_REQ = (1.245 + .5 * 1.237)
+
+#thin the example
+#gen_dict, load_ratio = generator.smallTestCase( gen_dict_, filt_percent = .1 )
 
 #Load up the averages
 file_avg_loads = csv.reader(open("../load_means.csv", "rU") )
