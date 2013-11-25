@@ -48,3 +48,14 @@ def calcResReqs(on_vals):
     t = sorted(cap_producers.items(), key = lambda (n, cap): cap, reverse=True)
     big1, big2 = (cap for n, cap in t[:2] )
     return .5 * big1, big1, big1 + .5 * big2
+
+def calcOpLimits(on_vals, gen_dict):
+    """Heuristically compute the min/max loads per hour for which this dispatch still optimal."""
+    maxCap = Counter()
+    for (name, iHr) in on_vals:
+        maxCap[iHr] += gen_dict[name].eco_max[iHr]
+
+    for iHr in xrange(HORIZON_LENGTH):
+        print iHr, "\t", maxCap[iHr]
+            
+    

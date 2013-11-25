@@ -3,6 +3,9 @@
 import pdb, csv, numpy, sys
 import generator, buildNom, summarize
 
+tag1 = sys.argv[1]
+print tag1
+
 gen_dict = generator.doEverything()
 load_ratio = 1.0
 TMSR_REQ = (1.245 * .5)
@@ -22,16 +25,16 @@ for line in file_avg_loads:
 avg_loads_by_hr = numpy.array(avg_loads_by_hr)
 
 # Set up the output files
-file_out_costs = csv.writer(open("nominalReserve_backtest_costs.csv", "w"))
+file_out_costs = csv.writer(open(tag1 + "_costs.csv", "w"))
 file_out_costs.writerow(["Date", "Fixed", "Predicted", "Fixed", "Variable"])
 
-file_out_costs2 = csv.writer(open("hindsight_costs.csv", "w"))
+file_out_costs2 = csv.writer(open(tag1 + "_hind_costs.csv", "w"))
 file_out_costs2.writerow(["Date", "Fixed", "Predicted", "Fixed", "Variable"])
 
-file_out = csv.writer(open("nominalReserve_backtest.csv", "w"))
+file_out = csv.writer(open(tag1 + "_sched.csv", "w"))
 file_out.writerow([ "Date", "Type"] + ["H" + str(ix + 1) for ix in range(24) ] )
 
-file_out2 = csv.writer(open("hindsight_backtest.csv", "w"))
+file_out2 = csv.writer(open(tag1 + "_hind_sched.csv", "w"))
 file_out2.writerow([ "Date", "Type"] + ["H" + str(ix + 1) for ix in range(24) ] )
 
 print "Num Generators:\t", len(gen_dict)
@@ -47,8 +50,24 @@ print "\n Load Ratio:\t", load_ratio
 on_vals, start_vals, fixed_cost_init, tot_cost_init, prod_by_hr, variable_costs = buildNom.buildSolveNom(
         gen_dict, TMSR_REQ, T10_REQ, T30_REQ, avg_loads_by_hr)
 
+summarize.calcOpLimits(on_vals, gen_dict)
+pdb.set_trace()
+
+# Try solving a similar problem with a lower profile
+vFixedCosts = []
+scaling_grid = numpy.linspace(.1, .4, num=10)
+for scaling in scaling_grid:
+    on_vals, start_vals, fixedCostHind, totcostHind, prod_by_hour, variable_costs = buildNom.buildSolveNom(
+            gen_dict, TMSR_REQ, T10_REQ, T30_REQ, scaling * avg_loads_by_hr)
+    vFixedCosts.append( fixedCostHind )
+
+for s, val in zip(scaling_grid, vFixedCosts):
+    print s, val, fixed_cost_init
+
+sys.exit()
+
 #write out just once the planned production
-file_out_planned = csv.writer(open("nominalReserve_backtest_planned.csv", "w"))
+file_out_planned = csv.writer(open(tag1 + "_plan.csv", "w"))
 file_out_planned.writerow([ "Date", "Type"] + ["H" + str(ix + 1) for ix in range(24) ] )
 summarize.writeHourlySchedCap(file_out_planned, "Planned", on_vals, gen_dict)
 
