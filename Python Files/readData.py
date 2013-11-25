@@ -123,11 +123,11 @@ def readLoads( load_path ):
 
 if __name__ == "__main__":
     pdb.set_trace()
-    bid_dict = bidInfoToDict("ISO-data/pEnergyBidSize.txt", "ISO-data/pEnergyBidPrice.txt")
+    bid_dict = bidInfoToDict("../ISO-NE/pEnergyBidSize.txt", "../ISO-NE/pEnergyBidPrice.txt")
 
     print "Num Generators:\t", len(bid_dict)
 
-    load_counter = readLoads("ISO-data/pRandomAverage_v2.txt")    
+    load_counter = readLoads("../ISO-NE/pRandomAverage_v2.txt")    
     print "Load Info:"
     for ix in xrange(1, 37):
         print ix, load_counter[ix]

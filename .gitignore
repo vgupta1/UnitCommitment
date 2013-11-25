@@ -1,1 +1,6 @@
 ISO-NE/
+*.pyc
+*.log
+*.ilp
+*.lp
+*.prof
