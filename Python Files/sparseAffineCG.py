@@ -1,7 +1,7 @@
 """ 
     An uncertainty set for affine sets where policy specified in eigen basis.
 """
-import math, numpy
+import math, numpy, pdb
 from scipy import stats
 import gurobipy as grb
 
@@ -61,9 +61,6 @@ class SparseAffineCutGen:
         self.lambdas = eig_vals[indx[-self.k:] ]
         self.M = numpy.dot( eig_vecs[:, indx[-self.k:] ], numpy.diag( numpy.sqrt( self.lambdas ) ) )
 
-        #VG is self.M sparse?
-        pdb.set_trace()
-        
         self.mu = mean
         self.invChol = numpy.linalg.cholesky( numpy.linalg.inv(cov) ).T
         

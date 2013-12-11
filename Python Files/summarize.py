@@ -36,10 +36,10 @@ def writeHourlySchedCap(file_out, label, on_vals, gen_dict):
     for fuel in fuel_types:
         file_out.writerow([label, fuel] + [cap_tally[hr, fuel] for hr in xrange(HORIZON_LENGTH) ] )        
         
-def calcResReqs(on_vals):
+def calcResReqs(on_vals, gen_dict):
     cap_producers= {}
     #not quite right, but it's a reasonable to assume the biggest prods will be nukes that are always on
-    for name, hr in UCObj.on_vars.keys():
+    for name, hr in on_vals:
         if name not in cap_producers:
             cap_producers[name] = gen_dict[name].eco_max[hr]
         else:

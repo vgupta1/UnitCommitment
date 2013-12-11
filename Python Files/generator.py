@@ -376,15 +376,10 @@ def smallTestCase( gen_dict, filt_percent=.1):
     #For each fuel_type, filter down
     for fuel in FUEL_TYPES:
         gen_fuels = filter(lambda(n, g): g.fuel_type == fuel, true_gens )
-        if fuel in ("Steam", "Hydro", "FixedImport"):
-            gen_fuels_filt  = gen_fuels[:int(math.ceil(len(gen_fuels) * filt_percent)) ]
-        elif fuel == "Nuclear":
+        if fuel == "Nuclear":
             gen_fuels_filt  = gen_fuels[:3 ]
-        elif fuel in ("CT", "CC", "Diesel"):
-            num = min(10, len(gen_fuels) )
-            gen_fuels_filt = gen_fuels[:num]                   
         else:
-            print ValueError("fuel")
+            gen_fuels_filt  = gen_fuels[:int(math.ceil(len(gen_fuels) * filt_percent)) ]
 
         orig_cap = sum( max(g.eco_max.values() ) for n, g in gen_fuels)
         new_cap = sum( max(g.eco_max.values() ) for n, g in gen_fuels_filt)

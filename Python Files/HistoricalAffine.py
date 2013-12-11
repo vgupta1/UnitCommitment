@@ -14,8 +14,23 @@ load_ratio = 1.0
 TMSR_REQ = (1.245 * .5)
 T10_REQ = (1.245)
 T30_REQ = (1.245 + .5 * 1.237)
-#genDict, load_ratio = generator.smallTestCase( genDict_, filt_percent = .1 )
-#buildUC2.calcResReqs(genDict, avg_loads_by_hr * load_ratio)
+
+file_means = csv.reader(open("../load_means.csv", "rU"))
+file_means.next()
+avgLoads = numpy.array([ float(line[1]) * 1e-3 for line in file_means])
+print "Num Loads:\t %d" % len(avgLoads )
+
+#solve a small nominal poblem to get teh reserve requirements
+genDict, load_ratio = generator.smallTestCase( genDict, filt_percent = .1 )
+#out = buildNom.buildSolveNom(genDict, 0, 0, 0, avgLoads)
+#print "Reserve Reqs:\t", summarize.calcResReqs(out[0], genDict)
+
+TMSR_REQ = 0.4405
+T10_REQ = 0.881
+T30_REQ = 1.2225
+
+TMSR_REQ = T10_REQ = T30_REQ = 0.
+
 
 #########
 # Set up the output files

@@ -8,6 +8,7 @@ import gurobipy as grb
 from config import *
 import sparseAffineCG as cg
 from buildNom import genStage1Vars, startStopConstraints, minUpConstraints, minDownConstraints
+from collections import Counter
 import generator
 
 class AffModel:
@@ -48,7 +49,7 @@ class AffModel:
         for name, iHr in self.onVars:
             onVals[name, iHr] = self.onVars[name, iHr].x
         variable_costs = Counter()
-        for ((name, hr), v) in self.variable_cost_vars.items():
+        for ((name, hr), v) in self.variableCostVars.items():
             variable_costs[hr] += v.x
         prod_by_hour = self.computeProdByType(genDict)
         return onVals, startVals, self.fixedCostVar.x, self.model.objVal, prod_by_hour, variable_costs
@@ -103,17 +104,17 @@ def __addLoadBalanceCnst(affModel, predLoads):
             f_sys[hr] +=  f 
             g_sys[hr] += g
 
-    for name, hr in affModel.flexVars:
-        f, g = flex_vars[ name, hr]
+    for name, hr in affModel.flexLoads:
+        f, g = affModel.flexLoads[ name, hr]
         f_sys[hr] -= f
         g_sys[hr] -= g
    
     balanceObjs = []        
     for hr in xrange(HORIZON_LENGTH):
-        balanceObjs.append( affCG.addBoth(f_sys[hr], g_sys[hr], 
-                                                -slack[hr] + predLoads[hr], slack[hr] + predLoads[hr], 
-                                                "BalanceH%d" % hr, iDx=hr) )         
-    affModel.slacks = slack
+        balanceObjs.append( affModel.affCG.addBoth(f_sys[hr], g_sys[hr], 
+                                                -slacks[hr] + predLoads[hr], slacks[hr] + predLoads[hr], 
+                                                "BalanceH%d" % hr, ixD=hr) )         
+    affModel.slacks = slacks
     affModel.balanceObjs = balanceObjs
     return
 
@@ -129,7 +130,6 @@ def resolve( affModel, predLoads, genDict, onValsHint={}, startValsHint={}):
     __addLoadBalanceCnst(affModel, predLoads )    
     
     model.printStats()
-    sys.exit()
     model.optimize()
     return affModel.summarizeSolution(genDict)
 
