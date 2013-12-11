@@ -53,9 +53,8 @@ def calcOpLimits(on_vals, gen_dict):
     """Heuristically compute the min/max loads per hour for which this dispatch still optimal."""
     maxCap = Counter()
     for (name, iHr) in on_vals:
-        maxCap[iHr] += gen_dict[name].eco_max[iHr]
-
-    for iHr in xrange(HORIZON_LENGTH):
-        print iHr, "\t", maxCap[iHr]
+        if on_vals[name, iHr] > .9:
+            maxCap[iHr] += gen_dict[name].eco_max[iHr]
+    return maxCap
             
     
