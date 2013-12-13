@@ -35,7 +35,7 @@ class AffModel:
             prod_by_hour[ "TOTAL", hr ] += self.prodVars[name, hr][1].x
         for name, hr in self.prodVars:
             prod_by_hour[ genDict[name].fuel_type, hr ] += self.prodVars[name, hr][1].x
-        for name, hr in self.flex_loads:
+        for name, hr in self.flexLoads:
             prod_by_hour["FLEX", hr] += self.flex_loads[name, hr][1].x
         for hour in xrange(HORIZON_LENGTH):
             prod_by_hour["Slack", hour] += self.slacks[hour].x
@@ -129,8 +129,14 @@ def resolve( affModel, predLoads, genDict, onValsHint={}, startValsHint={}):
     
     __addLoadBalanceCnst(affModel, predLoads )    
     
+    model.update()
     model.printStats()
+#    model.write("sample.mps")
+#    model.write("sample.lp")
+#    sys.exit()
+#    model = model.relax()
     model.optimize()
+    sys.exit() 
     return affModel.summarizeSolution(genDict)
 
 #############
@@ -204,7 +210,7 @@ def addPiecewiseCostsAff(model, trueGens, prodVars, affCG):
         prices = [b.price for b in offerBlocks[:numKnots] ] + [ offerBlocks[numKnots].price ] 
         size_diffs = [s  - sm for s, sm in zip(sizes, [0] + sizes) ] 
         numKnots += 1
-    
+
         for iHr in xrange(HORIZON_LENGTH):     
             model.addConstr(costVars[name, iHr] == 
                                 grb.quicksum( y * p  * s for y, p, s  in zip(ysAll[name, iHr], prices, size_diffs) ) )    
@@ -213,8 +219,8 @@ def addPiecewiseCostsAff(model, trueGens, prodVars, affCG):
                             grb.quicksum(y * s for y, s in zip(ysAll[name, iHr], size_diffs)), 
                             "PieceWiseCost%s%d" % (name, iHr), ixD=None)
     return costVars
-
-def ecoMinMaxConstsAff(model, genDict, prodVars, onVars, reserveVars, affCG, M = 1e4):
+#VG Test the value of M is sufficient?
+def ecoMinMaxConstsAff(model, genDict, prodVars, onVars, reserveVars, affCG, M = 1e2):
     """
     on_var * eco_min <= prodVars + reserve <= onVars * eco_max
     actually implemented slightly smarter than this to get a locally ideal formulation
@@ -287,14 +293,14 @@ def reserveRequirementsAff(model, reserveVars, TMSR_REQ, T10_REQ, T30_REQ, affCG
         T10_fs, T10_gs = zip(* T10_vars_by_hr )            
         f = reduce( lambda x, y: numpy.add(numpy.array(x), numpy.array(y) ), T10_fs )
         g = reduce( lambda x, y: x + y, T10_gs )
-        affCG.addGreaterEqual(f, g, T10_REQ, "T10Req%d" % iHr)
+        affCG.addGreaterEqual(f, g, T10_REQ, "T10ReqH%d" % iHr)
 
         T30_vars_by_hr = ( v for ((name, hr, type), v) in reserveVars.items() if 
                                                         hr == iHr and type in ("TMSR_CAP", "TMNSR_Cap", "TMOR_CAP") )
         T30_fs, T30_gs = zip(* T30_vars_by_hr )            
         f = reduce( lambda x, y: numpy.add(numpy.array(x), numpy.array(y) ), T30_fs )
         g = reduce( lambda x, y: x + y, T30_gs )
-        affCG.addGreaterEqual(f, g, T30_REQ, "T30Req%d" % iHr)
+        affCG.addGreaterEqual(f, g, T30_REQ, "T30ReqH%d" % iHr)
 
 def reserveCapacityAff(model, trueGens, reserveVars, affCG):
     """ No generator can offer more reserve of any type than its capacity allows."""

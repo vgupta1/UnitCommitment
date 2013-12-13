@@ -11,11 +11,16 @@ def getFuelType( name_fuel ):
         if type in name_fuel:
             fuel_type = type
             indx = name_fuel.find(type)
-            name_fuel = name_fuel[:indx]
+            name = name_fuel[:indx]
+            name = name.strip("'")
             break
     else: # Might be a load or something else.
+        name = name_fuel
         fuel_type = "Other"
-    return (name_fuel, fuel_type)    
+    return (squish(name), fuel_type)    
+
+def squish( string ):
+    return "".join(string.split())
 
 class StartUpBlock:
     """ Simple Struct"""
@@ -73,7 +78,6 @@ def createGenerators( resources_path ):
         if "/;" in line:
             break         #EOF Character
         gen_name, fuel_type = getFuelType( line.strip() )
-        gen_name = gen_name.strip("'")
         if gen_name in gen_dict:
             raise RunTimeError("Generator %s listed twice." % gen_name)
         else:
@@ -102,7 +106,7 @@ def parseGen( line, hasTime, isFloatParam, scaling ):
             time = None
         gen_name, fuel_type = getFuelType( gen_name.strip() )
         gen_name = gen_name.strip("'")
-        return gen_name, fuel_type, param, time
+        return squish(gen_name), fuel_type, param, time
         
 def addGenParameter( param_path, param_name, gen_dict, hasTime=True, isFloatParam=True, scaling=1. ):
     """Assumes a listing by generator and time and a parameter.  Useful for Ecomax, econmin"""
@@ -119,7 +123,6 @@ def addGenParameter( param_path, param_name, gen_dict, hasTime=True, isFloatPara
     
         if hasTime:
             param_dict = getattr(g, param_name)
-            #VG DELETE g.__dict__[param_name]:
             if time in param_dict:
                 raise RuntimeError("Parameter set twice.")
             param_dict[time] = param
@@ -145,6 +148,7 @@ def addReserveCap(param_path, gen_dict, scaling=1.):
             raise RuntimeError("Cap type %s not found" % cap_type)
         gen_name = gen_name.strip("'")
         gen_name, fuel_type = getFuelType(gen_name)
+        gen_name = squish(gen_name)
         if gen_name not in gen_dict:
             raise RuntimeError("Generator %s not found" % gen_name)
         else:

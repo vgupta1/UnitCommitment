@@ -69,10 +69,8 @@ class SparseAffineCutGen:
         for ix in xrange(numConstrs):
             t1 = self.model.addVar()
             t2 = self.model.addVar()
-            w1 = [self.model.addVar(lb = -grb.GRB.INFINITY) for ix in xrange(self.d)] 
-            w2 = [self.model.addVar(lb = -grb.GRB.INFINITY) for ix in xrange(self.k)] 
             norm_vars = [self.model.addVar(lb=-grb.GRB.INFINITY) for ix in xrange(self.numAuxVars2Norm) ]
-            self.auxVars.append( (t1, t2, w1, w2, norm_vars) )
+            self.auxVars.append( (t1, t2, norm_vars) )
         self.model.update()    
 
     #this should be implemented on children
@@ -80,11 +78,12 @@ class SparseAffineCutGen:
         """Adds an appropriate approximation to || w||_2 \leq t """
         model = self.model
         assert len(w) == len(v)
+        sqrt_d  = math.sqrt(len(v))
         for ix, (wi, vi) in enumerate(zip(w, v)):
-            model.addConstr(wi <= t, name =  "%sInfNorm%d" % (tag, ix ))
             model.addConstr( wi <= vi, name= "%sOneNormA%d" % (tag, ix) )
-            model.addConstr( -wi <= vi, name= "%sOneNormA%d" % (tag, ix) )
-        model.addConstr( grb.quicksum(v) <= math.sqrt(self.d) * t )
+            model.addConstr( -wi <= vi, name= "%sOneNormB%d" % (tag, ix) )
+            model.addConstr(vi * sqrt_d <= t, name =  "%sInfNorm%d" % (tag, ix ))
+        model.addConstr( grb.quicksum(v) <= sqrt_d * t )
 
     def addLessEqual(self, ybar, gbar, b, tag, ixD=None):
         """Adds constraints for ybar ^T M_k d + gbar <= d_{ix} + b 
@@ -94,38 +93,29 @@ class SparseAffineCutGen:
             print "No Caching?"
             self.createVars(1)
 
-        t1, t2 ,w1, w2, norm_vars = self.auxVars.pop()
-        v1 = norm_vars[:len(w1)]
-        v2 = norm_vars[len(w1):]
-        self.addNormConstr( w1, t1, v1, tag )
-        self.addNormConstr( w2, t2, v2, tag )                
+        t1, t2, norm_vars = self.auxVars.pop()
+        v1 = norm_vars[:self.d]
+        v2 = norm_vars[self.d:]
         model = self.model
 
         #VG Check: We are going to remove w1, w2, t1, t2, v1, v2, but not defining constraints
         #check to make sure gurobi knows what it's doing....
-        out_objs = [t1, t2, w2, w2] + norm_vars
+        out_objs = [t1, t2] + norm_vars
                 
-        #VG since no longer using 2nd order constraint, can likely eliminate the variables w1, w2
-        for i, (mi, wi) in enumerate(zip(self.M, w1)):
-            if ixD <> i:
-                out_objs.append( model.addConstr( grb.quicksum( mi[j] * ybar[j] for j in xrange(self.k) ) == wi ) )
-            else:
-                out_objs.append( model.addConstr( grb.quicksum( mi[j] * ybar[j] for j in xrange(self.k) ) == wi + 1 ) )
-            
+        #Create expressions of requisite size for w1 and w2
+        w1 = numpy.dot(self.M, ybar)
         if ixD is None:
-            for i in xrange(self.k):
-                out_objs.append( model.addConstr( ybar[i] * self.lambdas[i] == w2[i] ) )
-            #the master equation
-            out_objs.append( model.addConstr( numpy.dot(self.mu, numpy.dot(self.M, ybar) ) 
-                                                + self.gamma1 * t1 + self.kappa * t2 <= b - gbar, 
-                                                name="%sRob" % tag ) )
+            w2 = [ ybar[i] * self.lambdas[i] for i in xrange(self.k) ]
         else:
-            for i in xrange(self.k):
-                out_objs.append( model.addConstr(  ybar[i] * self.lambdas[i] - self.M[ixD, i] == w2[i] ) )
-            #master equation
-            out_objs.append( model.addConstr( numpy.dot(self.mu, numpy.dot(self.M, ybar ) ) - self.mu[ixD] 
-                                                + self.gamma1 * t1 + self.kappa * t2 <= b - gbar,  
-                                                name = "%sRob" % tag ) )
+            w1[ixD] -= 1 
+            w2 = [ybar[i] * self.lambdas[i] - self.M[ixD, i] for i in xrange(self.k) ]
+
+        self.addNormConstr( w1, t1, v1, "%sw1" % tag )
+        self.addNormConstr( w2, t2, v2, "%sw2" % tag )                
+        #master equation
+        out_objs.append( model.addConstr( numpy.dot(self.mu, w1)  #VG Double check this in all3 palces
+                                            + self.gamma1 * t1 + self.kappa * t2 <= b - gbar,  
+                                            name = "%sRob" % tag ) )
         return out_objs
 
     def addGreaterEqual(self, ybar, gbar, b, tag, ixD=None):
@@ -135,39 +125,28 @@ class SparseAffineCutGen:
             print "No Caching?"
             self.createVars(1)
 
-        t1, t2 ,w1, w2, norm_vars = self.auxVars.pop()
-        v1 = norm_vars[:len(w1)]
-        v2 = norm_vars[len(w1):]
-        self.addNormConstr( w1, t1, v1, tag )
-        self.addNormConstr( w2, t2, v2, tag )                
+        t1, t2, norm_vars = self.auxVars.pop()
+        v1 = norm_vars[:self.d]
+        v2 = norm_vars[self.d:]
         model = self.model
         #VG Check: We are going to remove w1, w2, t1, t2, v1, v2, but not defining constraints
         #check to make sure gurobi knows what it's doing....
-        out_objs = [t1, t2, w2, w2] + norm_vars
-
-        for i, (mi, wi) in enumerate(zip(self.M, w1)):
-            if ixD <> i:
-                temp = model.addConstr( grb.quicksum( mi[j] * ybar[j] for j in xrange(self.k) ) == wi )
-            else:
-                temp = model.addConstr( grb.quicksum( mi[j] * ybar[j] for j in xrange(self.k) ) == wi + 1 )
-            out_objs.append(temp) 
-            
+        out_objs = [t1, t2] + norm_vars
+        #Create expressions of requisite size for w1 and w2
+        w1 = numpy.dot(self.M, ybar)
         if ixD is None:
-            for i in xrange(self.k):
-                out_objs.append( model.addConstr( ybar[i] * self.lambdas[i] == w2[i] ) )
-            #the master equation
-            temp = model.addConstr( numpy.dot(self.mu, numpy.dot(self.M, ybar) ) 
-                                                - self.gamma1 * t1 - self.kappa * t2 >= b - gbar, 
-                                                name="%sRob" % tag )
-            out_objs.append( temp )
+            w2 = [ ybar[i] * self.lambdas[i] for i in xrange(self.k) ]
         else:
-            for i in xrange(self.k):
-                out_objs.append( model.addConstr(  ybar[i] * self.lambdas[i] - self.M[ixD, i] == w2[i] ) )
-            #master equation
-            temp = model.addConstr( numpy.dot(self.mu, numpy.dot(self.M, ybar ) ) - self.mu[ixD] 
-                                                - self.gamma1 * t1 - self.kappa * t2 >= b - gbar, 
-                                                name = "%sRob" % tag )
-            out_objs.append( temp )
+            w1[ixD] -= 1 
+            w2 = [ybar[i] * self.lambdas[i] - self.M[ixD, i] for i in xrange(self.k) ]
+
+        self.addNormConstr( w1, t1, v1, "%sw1" % tag )
+        self.addNormConstr( w2, t2, v2, "%sw2" % tag )                
+        #the master equation
+        temp = model.addConstr( numpy.dot(self.mu, w1 ) 
+                                            - self.gamma1 * t1 - self.kappa * t2 >= b - gbar, 
+                                            name="%sRob" % tag )
+        out_objs.append( temp )
         return out_objs
         
     def addBoth(self, ybar, gbar, bg, bl, tag, ixD=None):
@@ -179,47 +158,33 @@ class SparseAffineCutGen:
 
         #check if this logic can be moved to within the variable creation
         #without significantly affecting solve times.
-        t1, t2 ,w1, w2, norm_vars = self.auxVars.pop()
-        v1 = norm_vars[:len(w1)]
-        v2 = norm_vars[len(w1):]
-        self.addNormConstr( w1, t1, v1, tag )
-        self.addNormConstr( w2, t2, v2, tag )                
+#        t1, t2 ,w1, w2, norm_vars = self.auxVars.pop()
+        t1, t2, norm_vars = self.auxVars.pop()
+        v1 = norm_vars[:self.d]
+        v2 = norm_vars[self.d:]
         model = self.model
         #VG Check: We are going to remove w1, w2, t1, t2, v1, v2, but not defining constraints
         #check to make sure gurobi knows what it's doing....
-        out_objs = [t1, t2, w2, w2] + norm_vars
-        
-        for i, (mi, wi) in enumerate(zip(self.M, w1)):
-            if ixD <> i:
-                temp = model.addConstr( grb.quicksum( mi[j] * ybar[j] for j in xrange(self.k) ) == wi )
-            else:
-                temp = model.addConstr( grb.quicksum( mi[j] * ybar[j] for j in xrange(self.k) ) == wi + 1 )
-            out_objs.append(temp)
+        out_objs = [t1, t2] + norm_vars
 
+        #Create expressions of requisite size for w1 and w2
+        w1 = numpy.dot(self.M, ybar)
         if ixD is None:
-            for i in xrange(self.k):
-                out_objs.append( model.addConstr( ybar[i] * self.lambdas[i] == w2[i] ) )
-            #the master equations
-            temp = model.addConstr( numpy.dot(self.mu, numpy.dot(self.M, ybar) ) 
-                                                - self.gamma1 * t1 - self.kappa * t2 >= bg - gbar, 
-                                                name="%sRobGreater" % tag )
-            out_objs.append( temp )
-            temp = model.addConstr( numpy.dot(self.mu, numpy.dot(self.M, ybar) ) 
-                                                + self.gamma1 * t1 + self.kappa * t2 <= bl - gbar, 
-                                                name="%sRobLess" % tag )
-            out_objs.append( temp )
+            w2 = [ ybar[i] * self.lambdas[i] for i in xrange(self.k) ]
         else:
-            for i in xrange(self.k):
-                out_objs.append( model.addConstr(  ybar[i] * self.lambdas[i] - self.M[ixD, i] == w2[i] ) )
-            #master equation
-            temp = model.addConstr( numpy.dot(self.mu, numpy.dot(self.M, ybar ) ) - self.mu[ixD] 
-                                                - self.gamma1 * t1 - self.kappa * t2 >= bg - gbar, 
-                                                name = "%sRobGreater" % tag )
-            out_objs.append( temp )
-            temp = model.addConstr( numpy.dot(self.mu, numpy.dot(self.M, ybar ) ) - self.mu[ixD] 
-                                                + self.gamma1 * t1 + self.kappa * t2 <= bl - gbar, 
-                                                name = "%sRobLessr" % tag )
-            out_objs.append( temp )
+            w1[ixD] -= 1 
+            w2 = [ybar[i] * self.lambdas[i] - self.M[ixD, i] for i in xrange(self.k) ]
+        self.addNormConstr( w1, t1, v1, "%sw1" % tag )
+        self.addNormConstr( w2, t2, v2, "%sw2" % tag )                
+        #the master equations
+        temp = model.addConstr( numpy.dot(self.mu, w1 ) 
+                                            - self.gamma1 * t1 - self.kappa * t2 >= bg - gbar, 
+                                            name="%sRobGreater" % tag )
+        out_objs.append( temp )
+        temp = model.addConstr( numpy.dot(self.mu, w1 ) 
+                                            + self.gamma1 * t1 + self.kappa * t2 <= bl - gbar, 
+                                            name="%sRobLess" % tag )
+        out_objs.append( temp )
         return out_objs
 
     def sampleConstarint(self, ybar, gbar, b, tag, numPts, isLessEqual, ixD=None):

@@ -5,6 +5,8 @@ import generator, buildAff, buildNom, summarize
 import sparseAffineCG as cg
 import gurobipy as grb
 
+#VG use the skits version of bootstrapping to get a better value...
+
 tag1 = sys.argv[1]
 print tag1
 
@@ -20,7 +22,7 @@ file_means.next()
 avgLoads = numpy.array([ float(line[1]) * 1e-3 for line in file_means])
 print "Num Loads:\t %d" % len(avgLoads )
 
-#solve a small nominal poblem to get teh reserve requirements
+#solve a small nominal problem to get the reserve requirements
 genDict, load_ratio = generator.smallTestCase( genDict, filt_percent = .1 )
 #out = buildNom.buildSolveNom(genDict, 0, 0, 0, avgLoads)
 #print "Reserve Reqs:\t", summarize.calcResReqs(out[0], genDict)
