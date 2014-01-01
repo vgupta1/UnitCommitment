@@ -1,52 +1,66 @@
 """ Historical analysis Affine Model
 """
-import pdb, csv, numpy, math
-import generator, buildUC2
+import pdb, csv, numpy, sys
+import generator, buildAff, buildNom, summarize
+import sparseAffineCG as cg
+import gurobipy as grb
 
-# read in the data and build a single model
-gen_dict_ = generator.doEverything()
+#VG use the skits version of bootstrapping to get a better value...
 
-#Load up the averages
-file_avg_loads = csv.reader(open("../load_means.csv", "rU") )
-file_avg_loads.next() #burn one for the header
-avg_loads_by_hr = []
-for line in file_avg_loads:
-    avg_loads_by_hr.append( float( line[1] ) * 1e-3 )
-avg_loads_by_hr = numpy.array(avg_loads_by_hr)
+tag1 = sys.argv[1]
+print tag1
 
-#Thin it a bit
-gen_dict, load_ratio = generator.smallTestCase( gen_dict_, filt_percent = .1 )
-#buildUC2.calcResReqs(gen_dict, avg_loads_by_hr * load_ratio)
-TMSR_REQ = (0.683 * .5)/2.
-T10_REQ = (0.683)/2.
-T30_REQ = (0.683 + .5 * 0.272)/2.
+# read in the data and thin it as necessary
+genDict = generator.doEverything()
+load_ratio = 1.0
+TMSR_REQ = (1.245 * .5)
+T10_REQ = (1.245)
+T30_REQ = (1.245 + .5 * 1.237)
 
-#These represent the averages over the whole set
-# TMSR_REQ = 622.5 * 1e-3
-# T10_REQ  = 1245. * 1e-3
-# T30_REQ = 1883. * 1e-3
+file_means = csv.reader(open("../load_means.csv", "rU"))
+file_means.next()
+avgLoads = numpy.array([ float(line[1]) * 1e-3 for line in file_means])
+print "Num Loads:\t %d" % len(avgLoads )
 
-TMSR_REQ = 0.
-T10_REQ = 0.
-T30_REQ = 0.
+#solve a small nominal problem to get the reserve requirements
+genDict, load_ratio = generator.smallTestCase( genDict, filt_percent = .1 )
+#out = buildNom.buildSolveNom(genDict, 0, 0, 0, avgLoads)
+#print "Reserve Reqs:\t", summarize.calcResReqs(out[0], genDict)
+
+TMSR_REQ = 0.4405
+T10_REQ = 0.881
+T30_REQ = 1.2225
+
+TMSR_REQ = T10_REQ = T30_REQ = 0.
 
 
-print "\n Num Generators:\t", len(gen_dict)
+#########
+# Set up the output files
+#########
+file_out_costs = csv.writer(open(tag1 + "_costs.csv", "w"))
+file_out_costs.writerow(["Date", "Fixed", "PredVariable", "RealVariable"])
+
+file_out = csv.writer(open(tag1 + "_sched.csv", "w"))
+file_out.writerow([ "Date", "Type"] + ["H" + str(ix + 1) for ix in range(24) ] )
+
+file_out2 = csv.writer(open(tag1 + "_realized.csv", "w"))
+file_out2.writerow([ "Date", "Type"] + ["H" + str(ix + 1) for ix in range(24) ] )
+
+
+print "\n Num Generators:\t", len(genDict)
 for iType in generator.FUEL_TYPES:
-    print iType, len( filter( lambda g: g.fuel_type == iType, gen_dict.values() ) )
+    print iType, len( filter( lambda g: g.fuel_type == iType, genDict.values() ) )
 
 print "\n Capacity Requirements:"
 print TMSR_REQ, T10_REQ, T30_REQ
 
 print "\n Load Ratio: \t", load_ratio
 
-#pull out hte residuals
-eps = .1
-delta = .2
+#load the realized residuals
 file_resids = csv.reader(open("../forestResid.csv", "rU") )
 file_resids.next() #burn the headers
 resids = [line[2:] for line in file_resids]  #burn two for the date and the row name
-resids = numpy.array(resids, dtype=float) * 1e-3 * load_ratio * 2.5
+resids = numpy.array(resids, dtype=float) * 1e-3 * load_ratio
 print "Mean Resids:\t", resids.shape
 print numpy.mean(resids, axis=0)
 
@@ -57,56 +71,37 @@ file_preds.next() #burn a header
 file_loads = csv.reader(open("../load_validate.csv", "rU") ) 
 file_loads.next() # burn one for the header
 
-#output files
-file_out_costs = csv.writer(open("affine_backtest_costs.csv", "w"))
-file_out_costs.writerow(["Date", "Fixed", "Predicted", "Fixed", "Variable"])
-file_out = csv.writer(open("affine_backtest.csv", "w"))
-file_out.writerow([ "Date", "Type"] + ["H" + str(ix + 1) for ix in range(24) ] )
-file_out_planned = csv.writer(open("affine_backtest_planned.csv", "w"))
-file_out_planned.writerow([ "Date", "Type"] + ["H" + str(ix + 1) for ix in range(24) ] )
+#model for the second stage stuff
+UC2obj =  buildNom.__buildNomNoLoad(genDict, TMSR_REQ, T10_REQ, T30_REQ, False, False)
 
-#build one model for the nominal second stage stuff
-UC2obj =  buildUC2.__buildNomNoLoad(gen_dict, TMSR_REQ, T10_REQ, T30_REQ, False, True, False)
-
-#solve the nominal for a good starting solution
+#the affine cut generator
+eps = .1
+delta = .2
+m = grb.Model("Affine")
+affCG = cg.SparseAffineCutGen(resids, eps, 5, m, .5 * delta, .5 * delta, 
+                                                                gamma1=0.00246590712422, gamma2= 0.00216257393186)
 
 #build one model for the affine stuff
-(m, gen_dict, prod_vars, flex_loads, on_vars, start_vars, stop_vars, 
-                fixed_cost_var, reserve_vars, variable_cost_vars, slack, fvecs ,fvecs_norm, gprod_sys, uncSet) = (
-                buildUC2.buildAffineModel(gen_dict, TMSR_REQ, T10_REQ, T30_REQ, resids, eps, delta, 5, 
-                                                                omitRamping=True) )
+affModel = buildAff.__buildAffNoLoad(affCG, genDict, TMSR_REQ, T10_REQ, T30_REQ, False, True)
 
 # for each day in the validation set,
-old_objs_affine = []
-old_objs_nom = []
 for ix, (line_load, line_fit) in enumerate(zip(file_loads, file_preds)):
-    if ix > 2:
+    if ix > 1:
         sys.exit()
-
-    fit_load_by_hr = [float(l) * 1e-3  * load_ratio for l in line_fit[2:26] ]
-
-    #solve the nominal for a mip start
-#     on_vals_init, start_vals_init, fixedCost_init, totCost_init, prod_by_hour_init, variable_costs_init = (
-#         buildUC2.buildSolveNom(gen_dict, TMSR_REQ, T10_REQ, T30_REQ, fit_load_by_hr) )
-#     buildUC2.addMIPStart(m, on_vals_init, start_vals_init, on_vars, start_vars)
+        
+    predLoads = [float(l) * 1e-3  * load_ratio for l in line_fit[2:26] ]
 
     #Update the affine model and solve
-    (on_vals, start_vals, fixedCost1, totCost1, prod_by_hr, variable_costs), old_objs_affine = buildUC2.addSolveAffineLoadBalanceNaive(
-            m, gen_dict, prod_vars, flex_loads, on_vars, start_vars, stop_vars, fixed_cost_var, reserve_vars, 
-            fit_load_by_hr, variable_cost_vars, old_objs_affine, slack, fvecs, fvecs_norm, gprod_sys, uncSet)
-
-    buildUC2.writeHourlySchedCap(file_out_planned, line_load[1], on_vals, gen_dict)
+    onVals, startVals, fixedCostAff, totCostAff, prodByHrAff, varCostsAff = \
+            buildAff.resolve(affModel, predLoads, genDict)
+    summarize.writeHourlySchedCap(file_out, line_load[1], onVals, genDict)
 
     #extract the period 1 solutions, and solve stage 2
     loads = [float(l) * 1e-3 * load_ratio for l in line_load[2:26]]
 
-    ##VG HACK
-    resids = [ (l - lp) * 2.5 for l, lp in zip(loads, fit_load_by_hr) ]
-    loads= [l + r for l,r in zip(loads, resids)]
-
-    (on_vals, start_vals, fixedCost2, totCost2, prod_by_hr, variable_costs), old_objs_nom = buildUC2.updateSolveSecondStage( 
-           UC2obj, loads, old_objs_nom, start_vals, on_vals, gen_dict )
+    onValsCheck, startValsCheck, fixedCostCheck, totCostRealAff, prodByHrReal, varCostsReal = \
+            buildNom.updateSolveSecondStage( UC2obj, loads, genDict, onVals, startVals)
 
     # dump some statistics for the run
-    file_out_costs.writerow([ line_load[1], fixedCost1, totCost1 - fixedCost1, fixedCost2, totCost2 - fixedCost2] )
-    buildUC2.writeHourlyGens(file_out, line_load[1], prod_by_hr)    
+    file_out_costs.writerow([ line_load[1], fixedCostAff, varCostsAff, varCostsReal] )
+    summarize.writeHourlyGens(file_out2, line_load[1], prodByHrReal)    

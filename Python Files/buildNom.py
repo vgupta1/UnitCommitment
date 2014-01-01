@@ -17,9 +17,7 @@ class UCNomModel():
                 model, on_vars, start_vars, stop_vars, prod_vars, reserve_vars )
         self.variable_cost_vars, self.flex_loads, self.fixed_cost_var, self.dec_vars_amt, self.inc_vars = (
                 variable_cost_vars, flex_loads, fixed_cost_var, dec_vars_amt, inc_vars )
-        self.slacks = []
-        self.balance_cnsts = []
-        self.fixed_var_cnsts = []
+        self.slacks, self.balance_cnsts, self.fixed_var_cnsts = [], [], []
 
     def removeOldCnsts(self):
         for o in self.slacks:
@@ -93,6 +91,7 @@ def __buildNomNoLoad(gen_dict, TMSR_REQ, T10_REQ, T30_REQ, includeIncDecs, spars
     minUpConstraints(m, true_gens, on_vars)
     minDownConstraints(m, true_gens, on_vars)
     flex_loads = genFlexibleDemandVarsNom( m, gen_dict )
+
     reserveRequirements(m, reserve_vars, TMSR_REQ, T10_REQ, T30_REQ)
     reserveCapacity(m, true_gens, reserve_vars)
     if includeIncDecs:
@@ -112,23 +111,30 @@ def buildSolveNom(gen_dict, TMSR_REQ, T10_REQ, T30_REQ, load_by_hr,
     """
     nomUCObj = __buildNomNoLoad(gen_dict, TMSR_REQ, T10_REQ, T30_REQ, includeIncDecs, sparseRamps)                               
     __addLoadBalanceCnst( nomUCObj, load_by_hr)                            
+
+    #VG DEBUG
+    nomUCObj.model.params.mipgap = 5e-3
+
     if sparseRamps:
         nomUCObj.model.optimize( lambda model, where: nomUCObj.rampingCallback(gen_dict, where) )
     else:
         nomUCObj.model.optimize()
     return nomUCObj.summarizeSolution(gen_dict)
 
-def updateSolveSecondStage( UCObj, new_load_by_hr, gen_dict, on_vals, start_vals ):
+def updateSolveSecondStage( UCObj, new_load_by_hr, gen_dict, on_vals, start_vals, forceBalance=False ):
+    pdb.set_trace()
     UCObj.removeOldCnsts()
     model = UCObj.model
     old_objs = []
     for key, val in on_vals.items() :
-        old_objs.append( UCObj.model.addConstr( UCObj.on_vars[key] == round( val )) )
+        old_objs.append( UCObj.model.addConstr( UCObj.on_vars[key] == round( val ), 
+                                                                                        name="FixOnVar%s%d" % key) )
     for key, val in start_vals.items() :
-        old_objs.append( model.addConstr( UCObj.start_vars[key] == round( val )) )
+        old_objs.append( model.addConstr( UCObj.start_vars[key] == round( val ), 
+                                                                                        name="FixStartVal%s%d" % key) )
 
     UCObj.fixed_var_cnsts = old_objs
-    __addLoadBalanceCnst( UCObj, new_load_by_hr )
+    __addLoadBalanceCnst( UCObj, new_load_by_hr, forceBalance )
     model.optimize()
     return UCObj.summarizeSolution(gen_dict)
 
@@ -419,11 +425,11 @@ def ecoMinMaxConsts(model, gen_dict, prod_vars, on_vars, reserve_vars):
                 on_vars[name, iHr] * gen_dict[name].TMSR_Cap, 
                 name="SpinningReserve" + "name" + str(iHr) )
                 
-def __addLoadBalanceCnst(nomUCObj, load_by_hr):
+def __addLoadBalanceCnst(nomUCObj, load_by_hr, forceBalance=False):
     """ Adds a constraint to minimize the L1 deviation from the load."""
-    #Assme that old objects have already been removed
-
+    #Assume that old objects have already been removed
     model = nomUCObj.model
+
     #add a slack variable for the amount missed.    
     slack = [model.addVar(obj=PENALTY)  for ix in xrange(HORIZON_LENGTH) ]
     model.update()
@@ -445,8 +451,12 @@ def __addLoadBalanceCnst(nomUCObj, load_by_hr):
 
     balance_cnsts = []        
     for hr in xrange(HORIZON_LENGTH):
-        balance_cnsts.append ( model.addConstr( prod_by_hr[hr] - load_by_hr[hr] <= slack[hr] ) )
-        balance_cnsts.append ( model.addConstr( load_by_hr[hr] - prod_by_hr[hr] <= slack[hr] ) )
+        balance_cnsts.append ( model.addConstr( prod_by_hr[hr] - load_by_hr[hr] <= slack[hr], 
+                                                                                     name = "Balance2%d" % hr ) )
+        balance_cnsts.append ( model.addConstr( load_by_hr[hr] - prod_by_hr[hr] <= slack[hr], 
+                                                                                     name="Balance1%d" % hr ) )
 
     nomUCObj.slacks = slack
     nomUCObj.balance_cnsts = balance_cnsts
+
+
