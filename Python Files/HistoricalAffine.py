@@ -78,16 +78,17 @@ UC2obj =  buildNom.__buildNomNoLoad(genDict, TMSR_REQ, T10_REQ, T30_REQ, False, 
 eps = .1
 delta = .2
 m = grb.Model("Affine")
-affCG = cg.SparseAffineCutGen(resids, eps, 5, m, .5 * delta, .5 * delta)
+affCG = cg.SparseAffineCutGen(resids, eps, 5, m, .5 * delta, .5 * delta, 
+                                                                gamma1=0.00246590712422, gamma2= 0.00216257393186)
 
 #build one model for the affine stuff
-affModel = buildAff.__buildAffNoLoad(affCG, genDict, TMSR_REQ, T10_REQ, T30_REQ, False, False)
+affModel = buildAff.__buildAffNoLoad(affCG, genDict, TMSR_REQ, T10_REQ, T30_REQ, False, True)
 
 # for each day in the validation set,
 for ix, (line_load, line_fit) in enumerate(zip(file_loads, file_preds)):
-    if ix > 0:
+    if ix > 1:
         sys.exit()
-
+        
     predLoads = [float(l) * 1e-3  * load_ratio for l in line_fit[2:26] ]
 
     #Update the affine model and solve

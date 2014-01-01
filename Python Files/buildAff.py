@@ -21,9 +21,11 @@ class AffModel:
         self.affCG = affCG
 
     def removeOldObjs(self):
-        for o in self.slacks:
-            self.model.remove( o )
+        print "Len Old Objs:\t", len(self.balanceObjs), len(self.slacks), len(self.fixed_var_cnsts)
+
         for o in self.balanceObjs:
+            self.model.remove( o )
+        for o in self.slacks:
             self.model.remove( o )
         for o in self.fixed_var_cnsts:
             self.model.remove(  o )
@@ -36,7 +38,7 @@ class AffModel:
         for name, hr in self.prodVars:
             prod_by_hour[ genDict[name].fuel_type, hr ] += self.prodVars[name, hr][1].x
         for name, hr in self.flexLoads:
-            prod_by_hour["FLEX", hr] += self.flex_loads[name, hr][1].x
+            prod_by_hour["FLEX", hr] += self.flexLoads[name, hr][1].x
         for hour in xrange(HORIZON_LENGTH):
             prod_by_hour["Slack", hour] += self.slacks[hour].x
         return prod_by_hour
@@ -55,8 +57,30 @@ class AffModel:
         return onVals, startVals, self.fixedCostVar.x, self.model.objVal, prod_by_hour, variable_costs
 
     #ramping call-back
-    def rampingCallback(self, genDict, where):
-        pass
+    def setRampCallback(self, genDict):
+        self.genDict = genDict
+        
+    def rampingCallback(self, where):
+        """Callback to be used when using sparse ramping constraints"""
+        model = self.model
+        if where == grb.GRB.callback.MIPSOL:
+            for name, gen in gen_dict.items():
+                if gen.res_type <> "GEN" or gen.fuel_type not in ("Steam", "CT"):
+                    continue
+                for hr in xrange(1, HORIZON_LENGTH):
+                    #check to see if current solution violates either ramping constraint
+                    prod_, prod, start, stop = model.cbGetSolution(
+                        [self.prod_vars[name, hr-1], self.prod_vars[name, hr], self.start_vars[name, hr], self.stop_vars[name, hr]] )        
+                    if prod - prod_ > gen.ramp_rate and not start > .9:
+                        eco_max = gen.eco_max["H" + str(hr + 1)]
+                        model.addConstr( self.prod_vars[name, hr] - self.prod_vars[name, hr - 1] <= 
+                                                            gen.ramp_rate + eco_max * self.start_vars[name, hr], 
+                                                            name= "RampUp" + name + "H" + str(hr) )
+                    if prod_ - prod > gen.ramp_rate and not stop > .9:
+                        eco_max_m = gen.eco_max["H" + str(hr)] 
+                        model.addConstr( self.prod_vars[name, hr -1] - self.prod_vars[name, hr] <= 
+                                                            gen.ramp_rate + eco_max_m * self.stop_vars[name, hr], 
+                                                            name="RampDown" + name + "H" + str(hr) )
 
     # Robust constraint generation
     pass
@@ -78,7 +102,6 @@ def __buildAffNoLoad(affCG, genDict,
     reserveRequirementsAff(m, reserveVars, TMSR_REQ, T10_REQ, T30_REQ, affCG)    
     reserveCapacityAff(m, trueGens, reserveVars, affCG )
     
-    assert not sparseRamps #not yet implemented
     rampingConstsAff(m, trueGens, prodVars, startVars, stopVars, sparseRamps, affCG)
 
     #Ignore Inc/Dec amounts
@@ -109,13 +132,15 @@ def __addLoadBalanceCnst(affModel, predLoads):
         f_sys[hr] -= f
         g_sys[hr] -= g
    
+    affModel.affCG.createVars( HORIZON_LENGTH )
     balanceObjs = []        
     for hr in xrange(HORIZON_LENGTH):
-        balanceObjs.append( affModel.affCG.addBoth(f_sys[hr], g_sys[hr], 
+        balanceObjs += affModel.affCG.addBoth(f_sys[hr], g_sys[hr], 
                                                 -slacks[hr] + predLoads[hr], slacks[hr] + predLoads[hr], 
-                                                "BalanceH%d" % hr, ixD=hr) )         
+                                                "BalanceH%d" % hr, ixD=hr)         
     affModel.slacks = slacks
     affModel.balanceObjs = balanceObjs
+    print "Length of New Objs:\t", len(balanceObjs), len(slacks)
     return
 
 def resolve( affModel, predLoads, genDict, onValsHint={}, startValsHint={}):
@@ -136,7 +161,6 @@ def resolve( affModel, predLoads, genDict, onValsHint={}, startValsHint={}):
 #    sys.exit()
 #    model = model.relax()
     model.optimize()
-    sys.exit() 
     return affModel.summarizeSolution(genDict)
 
 #############
@@ -279,6 +303,8 @@ def ecoMinMaxConstsAff(model, genDict, prodVars, onVars, reserveVars, affCG, M =
     return
 
 def reserveRequirementsAff(model, reserveVars, TMSR_REQ, T10_REQ, T30_REQ, affCG):
+    reserveSlacks = [ (model.addVar(obj=PENALTY), model.addVar(obj=PENALTY), model.addVar(obj=PENALTY) ) 
+                                    for ix in xrange(HORIZON_LENGTH)]
     affCG.createVars(3 * HORIZON_LENGTH)
     for iHr in xrange(HORIZON_LENGTH):
         TMSR_vars_by_hr = ( v for ((name, hr, type), v) in reserveVars.items() if 
@@ -286,21 +312,21 @@ def reserveRequirementsAff(model, reserveVars, TMSR_REQ, T10_REQ, T30_REQ, affCG
         TMSR_fs, TMSR_gs = zip( * TMSR_vars_by_hr )
         f = reduce( lambda x, y: numpy.add(x, y), TMSR_fs )
         g = reduce( lambda x, y: x + y, TMSR_gs )
-        affCG.addGreaterEqual(f, g, TMSR_REQ, "TMSRReqH%d" % iHr)
+        affCG.addGreaterEqual(f, g, TMSR_REQ - reserveSlacks[iHr][0], "TMSRReqH%d" % iHr)
 
         T10_vars_by_hr = ( v for ((name, hr, type), v) in reserveVars.items() if 
                                                         hr == iHr and type in ("TMSR_CAP", "TMNSR_Cap") )
         T10_fs, T10_gs = zip(* T10_vars_by_hr )            
         f = reduce( lambda x, y: numpy.add(numpy.array(x), numpy.array(y) ), T10_fs )
         g = reduce( lambda x, y: x + y, T10_gs )
-        affCG.addGreaterEqual(f, g, T10_REQ, "T10ReqH%d" % iHr)
+        affCG.addGreaterEqual(f, g, T10_REQ - reserveSlacks[iHr][1], "T10ReqH%d" % iHr)
 
         T30_vars_by_hr = ( v for ((name, hr, type), v) in reserveVars.items() if 
                                                         hr == iHr and type in ("TMSR_CAP", "TMNSR_Cap", "TMOR_CAP") )
         T30_fs, T30_gs = zip(* T30_vars_by_hr )            
         f = reduce( lambda x, y: numpy.add(numpy.array(x), numpy.array(y) ), T30_fs )
         g = reduce( lambda x, y: x + y, T30_gs )
-        affCG.addGreaterEqual(f, g, T30_REQ, "T30ReqH%d" % iHr)
+        affCG.addGreaterEqual(f, g, T30_REQ - reserveSlacks[iHr][0], "T30ReqH%d" % iHr)
 
 def reserveCapacityAff(model, trueGens, reserveVars, affCG):
     """ No generator can offer more reserve of any type than its capacity allows."""
