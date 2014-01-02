@@ -10,23 +10,6 @@ from scikits import bootstrap as boot
 def bootstrap(sample, statfunc, delta, nsamples=5e6):
     return boot.ci(sample, statfunction=statfunc, alpha = delta, n_samples=int(nsamples) )
 
-# def bootstrap(sample, statfunc, delta, nsamples = 1000):
-#     """
-#     Arguments:
-#        sample - input sample of values, assummed to be a nparray with obs in rows
-#        nsamples - number of samples to generate
-#        statfunc- statistical function to apply to each generated sample.
-#  
-#     Returns a 1-delta confidence interval for the statistic
-#     """
-#     n = sample.shape[0]
-#     X = numpy.zeros(nsamples)
-#     for i in xrange(nsamples):
-#         indxs = stats.randint.rvs(0, n-1, size=n)
-#         X[i] = statfunc(sample[indxs])
-# 
-#     X = numpy.sort(X) 
-#     return X[ [int( nsamples* .5 * delta), int(nsamples * (1 - .5 * delta) ) ] ]
 
 class SparseAffineCutGen:
     """A class for an outter approximation to the CS Cut Generation"""
@@ -203,7 +186,7 @@ class SparseAffineCutGen:
         out_objs.append( temp )
         return out_objs
 
-    def sampleConstarint(self, ybar, gbar, b, tag, numPts, isLessEqual, ixD=None):
+    def sampleConstraint(self, ybar, gbar, b, tag, numPts, isLessEqual, ixD=None):
         """Samples numPts versions of the constraint 
                 ybar ^T M_k d + gbar <= d_{ix} + b """
         #assume the sample mean is exact for the sampling
@@ -229,6 +212,47 @@ class SparseAffineCutGen:
                         + gbar <= b + us[ixD, ix], name = tag +"Sample%d" % ix  )
             return
             
+    def subGradNorm( x ):
+        """Return a subgradient of the scaled approx norm"""
+        sqrt_d = math.sqrt( self.d )
+        one_norm = numpy.linalg.norm(x, 1)
+        inf_norm = numpy.linalg.norm(x, 'inf')
+        def sgn(t):
+            if t > 0:
+                return 1.
+            elif: t < 0:
+                return -1.
+            else:
+                return 0.
+        if one_norm > self.d * inf_norm:
+            return numpy.array([sgn(xi) for xi in x]) / sqrt_d
+        else:
+            indx = numpy.argmax(numpy.absolute(x) )
+            out = numpy.zeros( len(x) )
+            out[indx] = sgn( x[ indx ])
+            return out
+
+    def suppFcn(self, y ):
+        """ Computes max_u in u y^T M u.  returns both ustar and value """
+        x = numpy.dot(self.M, ybar)
+        #compute the subgradient explicitly
+        ustar = self.mu + self.gamma1 * self.subGradNorm( x ) + 
+                self.kappa * numpy.dot(self.M.T, subGradNorm( numpy.dot(self.M * x ))) ##VG Double check
+        val = numpy.dot(ustar, x)
+
+        #VG Debug double check:
+        sqrt_d = math.sqrt( self.d )
+        one_norm = numpy.linalg.norm(x, 1)
+        inf_norm = numpy.linalg.norm(x, 'inf')
+        y = numpy.dot(self.M, x)
+        val2 = numpy.dot(self.mu, x) + self.gamma1 * max(one_norm / sqrt_d, inf_norm * sqrt_d) + 
+            self.kappa * max(one_norm / sqrt_d, inf_nom * sqrt_d )
+        if abs(val - val2) > 1e-7:
+            #Something wonky
+            pdb.set_trace()
+
+        return ustar, val
+
 #     def genCut(self, ybar_vals, gbar_val, b, TOL=1e-6):
 #         """Generates a violated constraint for family ybar ^T M_k d + gbar <= b 
 #         Returns None if valid."""

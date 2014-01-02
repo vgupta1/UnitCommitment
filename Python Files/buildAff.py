@@ -92,8 +92,6 @@ class AffModel:
                             affCG.model.cbLazy(grb.quicksum((fi - fmi) * ri for (fi, fmi, ri) in 
                                                                 zip(f, fm, resid_star) ) + g - gm <=
                                     gen.ramp_rate + eco_max * startVars[name, hr])
-
-
     
 def __buildAffNoLoad(affCG, genDict, 
                                         TMSR_REQ, T10_REQ, T30_REQ, includeIncDecs, sparseRamps):
@@ -404,6 +402,6 @@ def rampingConstsAff(model, trueGens, prodVars, startVars, stopVars, sparse, aff
                                                  "rampingLB%sH%d" % (name, hr) )           
     
     if sparse:
-        affCG.setRampCallback(trueGens):
+        affCG.setRampCallback(trueGens)
 
     return
