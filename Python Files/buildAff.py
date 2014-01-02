@@ -1,7 +1,5 @@
 """ 
     Functions to build the Affine model
-
-    Convenience functions listed at top 
 """
 import csv, pdb, numpy, sys, math
 import gurobipy as grb
@@ -57,33 +55,45 @@ class AffModel:
         return onVals, startVals, self.fixedCostVar.x, self.model.objVal, prod_by_hour, variable_costs
 
     #ramping call-back
-    def setRampCallback(self, genDict):
-        self.genDict = genDict
-        
+    def setRampCallback(self, trueGens):
+        self.trueGens = trueGens
+
+    def hasCallback(self):
+        return self.trueGens is not None
+
     def rampingCallback(self, where):
         """Callback to be used when using sparse ramping constraints"""
         model = self.model
         if where == grb.GRB.callback.MIPSOL:
-            for name, gen in gen_dict.items():
-                if gen.res_type <> "GEN" or gen.fuel_type not in ("Steam", "CT"):
+            for name, gen in self.trueGens.items():
+                if gen.fuel_type in ("Steam", "CT"):
                     continue
                 for hr in xrange(1, HORIZON_LENGTH):
-                    #check to see if current solution violates either ramping constraint
-                    prod_, prod, start, stop = model.cbGetSolution(
-                        [self.prod_vars[name, hr-1], self.prod_vars[name, hr], self.start_vars[name, hr], self.stop_vars[name, hr]] )        
-                    if prod - prod_ > gen.ramp_rate and not start > .9:
-                        eco_max = gen.eco_max["H" + str(hr + 1)]
-                        model.addConstr( self.prod_vars[name, hr] - self.prod_vars[name, hr - 1] <= 
-                                                            gen.ramp_rate + eco_max * self.start_vars[name, hr], 
-                                                            name= "RampUp" + name + "H" + str(hr) )
-                    if prod_ - prod > gen.ramp_rate and not stop > .9:
-                        eco_max_m = gen.eco_max["H" + str(hr)] 
-                        model.addConstr( self.prod_vars[name, hr -1] - self.prod_vars[name, hr] <= 
-                                                            gen.ramp_rate + eco_max_m * self.stop_vars[name, hr], 
-                                                            name="RampDown" + name + "H" + str(hr) )
+                    f, g = prodVars[name, hr]
+                    fm, gm = prodVars[name, hr - 1]
+                    fval = numpy.array( model.cbGetSolution(f) )
+                    fmval = numpy.array( model.cbGetSolution(fm) )
+                    gval, gmval = model.cbGetSolution([g, gm])
 
-    # Robust constraint generation
-    pass
+                    #check to see if its violated
+                    eco_max_m = gen.eco_max[hr - 1] 
+                    if model.cbGetSolution(stopVars[name, hr]) <= .9:
+                        resid_star, value = affCG.suppFcn(fmval - fval)
+                        value += gmval - gval
+                        if value > gen.ramp_rate + 1e-5: #VG return to this
+                            affCG.model.cbLazy(grb.quicksum((fmi - fi) * ri for (fmi, fi, ri) in 
+                                                                zip(fm, f, resid_star) ) + gm - g <= 
+                                    gen.ramp_rate + eco_max_m * stopVars[name, hr])
+                    eco_max = gen.eco_max[hr]
+                    if model.cbGetSolution(startVars[name, hr]) <= .9:
+                        resid_star, value = affCG.suppFcn(fval - fmval)
+                        value += gval - gmval
+                        if value > gen.ramp_rate + 1e-5: #VG return to this
+                            affCG.model.cbLazy(grb.quicksum((fi - fmi) * ri for (fi, fmi, ri) in 
+                                                                zip(f, fm, resid_star) ) + g - gm <=
+                                    gen.ramp_rate + eco_max * startVars[name, hr])
+
+
     
 def __buildAffNoLoad(affCG, genDict, 
                                         TMSR_REQ, T10_REQ, T30_REQ, includeIncDecs, sparseRamps):
@@ -160,7 +170,12 @@ def resolve( affModel, predLoads, genDict, onValsHint={}, startValsHint={}):
 #    model.write("sample.lp")
 #    sys.exit()
 #    model = model.relax()
-    model.optimize()
+    if affModel.hasCallback():
+        def mycallback(model, where):
+            return affModel.rampingCallback(where)
+        model.optimize( mycallback )
+    else:
+        model.optimize()
     return affModel.summarizeSolution(genDict)
 
 #############
@@ -387,4 +402,8 @@ def rampingConstsAff(model, trueGens, prodVars, startVars, stopVars, sparse, aff
                     affCG.addGreaterEqual( numpy.array(fm) - numpy.array(f), gm - g, 
                                                 -gen.ramp_rate - eco_max * startVars[name, hr], 
                                                  "rampingLB%sH%d" % (name, hr) )           
+    
+    if sparse:
+        affCG.setRampCallback(trueGens):
+
     return
