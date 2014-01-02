@@ -69,29 +69,29 @@ class AffModel:
                 if gen.fuel_type in ("Steam", "CT"):
                     continue
                 for hr in xrange(1, HORIZON_LENGTH):
-                    f, g = prodVars[name, hr]
-                    fm, gm = prodVars[name, hr - 1]
+                    f, g = self.prodVars[name, hr]
+                    fm, gm = self.prodVars[name, hr - 1]
                     fval = numpy.array( model.cbGetSolution(f) )
                     fmval = numpy.array( model.cbGetSolution(fm) )
                     gval, gmval = model.cbGetSolution([g, gm])
 
                     #check to see if its violated
                     eco_max_m = gen.eco_max[hr - 1] 
-                    if model.cbGetSolution(stopVars[name, hr]) <= .9:
+                    if model.cbGetSolution(self.stopVars[name, hr]) <= .9:
                         resid_star, value = affCG.suppFcn(fmval - fval)
                         value += gmval - gval
                         if value > gen.ramp_rate + 1e-5: #VG return to this
                             affCG.model.cbLazy(grb.quicksum((fmi - fi) * ri for (fmi, fi, ri) in 
                                                                 zip(fm, f, resid_star) ) + gm - g <= 
-                                    gen.ramp_rate + eco_max_m * stopVars[name, hr])
+                                    gen.ramp_rate + eco_max_m * self.stopVars[name, hr])
                     eco_max = gen.eco_max[hr]
-                    if model.cbGetSolution(startVars[name, hr]) <= .9:
+                    if model.cbGetSolution(self.startVars[name, hr]) <= .9:
                         resid_star, value = affCG.suppFcn(fval - fmval)
                         value += gval - gmval
                         if value > gen.ramp_rate + 1e-5: #VG return to this
                             affCG.model.cbLazy(grb.quicksum((fi - fmi) * ri for (fi, fmi, ri) in 
                                                                 zip(f, fm, resid_star) ) + g - gm <=
-                                    gen.ramp_rate + eco_max * startVars[name, hr])
+                                    gen.ramp_rate + eco_max * self.startVars[name, hr])
     
 def __buildAffNoLoad(affCG, genDict, 
                                         TMSR_REQ, T10_REQ, T30_REQ, includeIncDecs, sparseRamps):
