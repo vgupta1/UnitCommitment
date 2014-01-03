@@ -11,17 +11,18 @@ import generator
 
 class AffModel:
     def __init__(self, model, onVars, startVars, stopVars, prodVars, reserveVars, variableCostVars, 
-                                    flexLoads, fixedCostVar, affCG):
+                                    flexLoads, fixedCostVar, affCG, genDict):
         self.model, self.onVars, self.startVars, self.stopVars, self.prodVars, self.reserveVars = \
                 model, onVars, startVars, stopVars, prodVars, reserveVars 
         self.variableCostVars, self.flexLoads, self.fixedCostVar= variableCostVars, flexLoads, fixedCostVar
         self.slacks, self.balanceObjs, self.fixed_var_cnsts = [], [], [] #VG Combine these two to one object
         self.affCG = affCG
-        self.trueGens = None #used right now as a flag for whether we doing sparse ramps
+        self.genDict = genDict
+        self.trueGens = dict(filter(lambda (n, g): g.res_type == "GEN" and g.fuel_type <> "FixedImport", 
+                                genDict.items() ) )
+        self.hasCallBack = false
 
     def removeOldObjs(self):
-        print "Len Old Objs:\t", len(self.balanceObjs), len(self.slacks), len(self.fixed_var_cnsts)
-
         for o in self.balanceObjs:
             self.model.remove( o )
         for o in self.slacks:
@@ -56,11 +57,9 @@ class AffModel:
         return onVals, startVals, self.fixedCostVar.x, self.model.objVal, prod_by_hour, variable_costs
 
     #ramping call-back
-    def setRampCallback(self, trueGens):
-        self.trueGens = trueGens
+    def setRampCallback(self):
+        self.hasCallBack = True
 
-    def hasCallback(self):
-        return self.trueGens is not None
 
     def rampingCallback(self, where):
         """Callback to be used when using sparse ramping constraints"""
@@ -96,26 +95,24 @@ class AffModel:
                                                                 zip(f, fm, resid_star) ) + g - gm <=
                                     gen.ramp_rate + eco_max * self.startVars[name, hr])
     
-def __buildAffNoLoad(affCG, genDict, 
-                                        TMSR_REQ, T10_REQ, T30_REQ, includeIncDecs, sparseRamps):
-    assert not includeIncDecs
+def __buildAffNoLoad(affCG, genDict, TMSR_REQ, T10_REQ, T30_REQ, sparseRamps):
     m = affCG.model
-    trueGens = dict( filter( lambda (n, g): g.res_type == "GEN" and g.fuel_type <> "FixedImport", 
+    trueGens = dict(filter(lambda (n, g): g.res_type == "GEN" and g.fuel_type <> "FixedImport", 
                                 genDict.items() ) )
-    onVars, startVars, stopVars, costVar = genStage1Vars( m, trueGens )
+    onVars, startVars, stopVars, costVar = genStage1Vars(m, trueGens)
     startStopConstraints(m, trueGens, onVars, startVars, stopVars)
     minUpConstraints(m, trueGens, onVars)
     minDownConstraints(m, trueGens, onVars)
 
-    prodVars, reserveVars = genStage2VarsAff(m, trueGens, affCG.k)  #VG Think about adding slacks for reserves
+    prodVars, reserveVars = genStage2VarsAff(m, trueGens, affCG.k)
     flexLoads = genFlexibleDemandVarsAff(m, genDict, affCG.k)
     variableCostVars = addPiecewiseCostsAff(m, trueGens, prodVars, affCG)
     ecoMinMaxConstsAff(m, genDict, prodVars, onVars, reserveVars, affCG)
-#    reserveRequirementsAff(m, reserveVars, TMSR_REQ, T10_REQ, T30_REQ, affCG)    
-#    reserveCapacityAff(m, trueGens, reserveVars, affCG )
+    reserveRequirementsAff(m, reserveVars, TMSR_REQ, T10_REQ, T30_REQ, affCG)    
+    reserveCapacityAff(m, trueGens, reserveVars, affCG )
 
     o = AffModel(m, onVars, startVars, stopVars, prodVars, reserveVars, variableCostVars, 
-                                    flexLoads, costVar, affCG)
+                                    flexLoads, costVar, affCG, genDict)
 #    rampingConstsAff(o, sparseRamps, trueGens)
     return o
 
@@ -180,20 +177,21 @@ def resolve( affModel, predLoads, genDict, onValsHint={}, startValsHint={}):
 #############
 #  The following functions are all helpers that do various tasks
 ##############
-def genStage2VarsAff( model, trueGens, k ):
+def genStage2VarsAff(model, trueGens, k):
     """Includes reserve varibles by default
-    prod[gen,time] = (f vec, g consant), reserve[gen, time, type] = (fvec, gconstant)
+    prod[gen,time] = (fvec, gconstant), 
+    reserve[gen, time, type] = gconstant
+    len(fvec) = k.
     """
     #VG Experiment computationally with value of adding explicit upper bounds to these variables
     prod, reserve = {}, {}
     for name, gen in trueGens.items():
         for iHr in xrange(HORIZON_LENGTH):
-            fvec = [model.addVar(lb = -grb.GRB.INFINITY) for ix in xrange(k) ] 
-            prod[name, iHr] = (fvec, model.addVar(lb=-grb.GRB.INFINITY) )    
+            fvec = numpy.array([model.addVar(lb = -grb.GRB.INFINITY) for ix in xrange(k)]) 
+            prod[name, iHr] = (fvec, model.addVar())   #Assumes 0 in U
         
             for cap_type in generator.GenUnit.RESERVE_PRODUCTS:
-                fvec = [model.addVar(lb = -grb.GRB.INFINITY) for ix in xrange(k) ] 
-                reserve[name, iHr, cap_type] = (fvec, model.addVar(lb=-grb.GRB.INFINITY))    
+                reserve[name, iHr, cap_type] = model.addVar(name="%sH%d%s" % (name, iHr, cap_type)) #uses lowebound zero    
     model.update()
     return prod, reserve
 
@@ -269,16 +267,16 @@ def ecoMinMaxConstsAff(model, genDict, prodVars, onVars, reserveVars, affCG, M =
         #special case for eco_max == 0
         if genDict[name].eco_max[iHr] < TOL:
             model.addConstr(onVars[name, iHr] == 0 )
+            model.addConstr( reserveVars[name, iHr,  "TMSR_Cap"] == 0 )
+            model.addConstr( reserveVars[name, iHr,  "TMNSR_Cap"] == 0 )
+            model.addConstr( reserveVars[name, iHr,  "TMOR_Cap"] == 0 )
+
             fprod, gprod = prodVars[name, iHr]
             model.addConstr(gprod == 0 )
             for f in fprod:
                 model.addConstr(f == 0 )
-            fspin, gspin = reserveVars[name, iHr,  "TMSR_Cap"]
-            model.addConstr( gspin == 0 )
-            for f in fspin:
-                model.addConstr( f == 0 )
         else:
-            numConstr +=6 # one for the eco-min/max and one for the spinning reserve           
+            numConstr += 2 # one for the eco-min/max and one for the spinning reserve           
 
     #requisition all the variables in one go
     affCG.createVars(numConstr) 
@@ -286,93 +284,73 @@ def ecoMinMaxConstsAff(model, genDict, prodVars, onVars, reserveVars, affCG, M =
         if genDict[name].eco_max[iHr]  < TOL:
             continue
         #if you're off, no production and no spinning reserve
+        eco_max = genDict[name].eco_max[iHr]
         fprod, gprod = prodVars[name, iHr]
-        model.addConstr( gprod <= onVars[name, iHr] * M )
-        model.addConstr( gprod >= -onVars[name, iHr] * M)
+        model.addConstr( gprod <= onVars[name, iHr] * eco_max )  #assumes 0 in U
         for f in fprod:
             model.addConstr( f <= onVars[name, iHr] * M )
             model.addConstr( f >= -onVars[name, iHr] * M )
-        fspin, gspin = reserveVars[name, iHr,  "TMSR_Cap"]
-        model.addConstr( gspin <= onVars[name, iHr] * M )
-        model.addConstr( gspin >= -onVars[name, iHr] * M )
-        for f in fspin:
-            model.addConstr ( f <= onVars[name, iHr] * M)
-            model.addConstr ( f >= -onVars[name, iHr] * M )
+        
+        #spinning reserve bounded by TMSR_Cap
+        #Other bounds on reserve handled in the reserve capacity function
+        gspin = reserveVars[name, iHr,  "TMSR_Cap"]
+        model.addConstr( gspin <= onVars[name, iHr] * genDict[name].TMSR_Cap )
 
-        #VG This needs to be done more cleverly... ok for now
-        fres, gres =  0., 0.
-        for type in generator.GenUnit.RESERVE_PRODUCTS:
-            fres = fres + numpy.array( reserveVars[name, iHr, type][0] )
-            gres += reserveVars[name, iHr, type][1]
-            affCG.addGreaterEqual(fres, gres, 0, "NonNegRes%s%s%d" % (type, name, iHr) )
+        gres = grb.quicksum(reserveVars[name, iHr, type] for type in genDict[name].RESERVE_PRODUCTS)
 
-        affCG.addBoth(fres + fprod, gres + gprod, 
+        #first constrain the production and reserves to be between eco min-max
+        affCG.addBoth(fprod, gprod + gres, 
                 onVars[name, iHr] * genDict[name].eco_min[iHr], 
                 onVars[name, iHr] * genDict[name].eco_max[iHr], 
                 "EcoMinMax%s%d" % (name, iHr) )
 
-        affCG.addGreaterEqual(fprod, gprod, 0, "NonNegProd%s%d" % (name, iHr) )
-
-        #spinning reserve bounded by TMSR_Cap
-        assert (name, iHr, "TMSR_Cap") in reserveVars
-        affCG.addBoth(fspin, gspin, 
-                0.0, onVars[name, iHr] * genDict[name].TMSR_Cap, 
-                "OnForSpin%s%d" % (name, iHr) )
+        #next production itself must be at least eco_min
+        #VG make sure this correctly matches what we're doing in the nominal
+        affCG.addGreaterEqual(fprod, gprod,
+                onVars[name, iHr] * genDict[name].eco_min[iHr], 
+                "ProdAtLeastEcoMin%s%d" % (name, iHr) )  
     return
 
 def reserveRequirementsAff(model, reserveVars, TMSR_REQ, T10_REQ, T30_REQ, affCG):
-    reserveSlacks = [ (model.addVar(obj=PENALTY), model.addVar(obj=PENALTY), model.addVar(obj=PENALTY) ) 
+    reserveSlacks = [ (model.addVar(obj=PENALTY, name="SlackTMSR_REQ%d" % ix), 
+                       model.addVar(obj=PENALTY, name="SlackT10_REQ%d" % ix), 
+                       model.addVar(obj=PENALTY, name="SlackT30_REQ%d" % ix) ) 
                                     for ix in xrange(HORIZON_LENGTH)]
-    affCG.createVars(3 * HORIZON_LENGTH)
     for iHr in xrange(HORIZON_LENGTH):
         TMSR_vars_by_hr = ( v for ((name, hr, type), v) in reserveVars.items() if 
                                                         hr == iHr and type == "TMSR_Cap" )
-        TMSR_fs, TMSR_gs = zip( * TMSR_vars_by_hr )
-        f = reduce( lambda x, y: numpy.add(x, y), TMSR_fs )
-        g = reduce( lambda x, y: x + y, TMSR_gs )
-        affCG.addGreaterEqual(f, g, TMSR_REQ - reserveSlacks[iHr][0], "TMSRReqH%d" % iHr)
+        g = reduce( lambda x, y: x + y, TMSR_vars_by_hr )
+        affCG.model.addConstr(g + reserveSlacks[iHr][0] >= TMSR_REQ, name="TMSRReqH%d" % iHr)
 
         T10_vars_by_hr = ( v for ((name, hr, type), v) in reserveVars.items() if 
                                                         hr == iHr and type in ("TMSR_CAP", "TMNSR_Cap") )
-        T10_fs, T10_gs = zip(* T10_vars_by_hr )            
-        f = reduce( lambda x, y: numpy.add(numpy.array(x), numpy.array(y) ), T10_fs )
-        g = reduce( lambda x, y: x + y, T10_gs )
-        affCG.addGreaterEqual(f, g, T10_REQ - reserveSlacks[iHr][1], "T10ReqH%d" % iHr)
+        g = reduce( lambda x, y: x + y, T10_vars_by_hr )
+        affCG.model.addConstr( g + reserveSlacks[iHr][1] >= T10_REQ, name="T10ReqH%d" % iHr)
 
         T30_vars_by_hr = ( v for ((name, hr, type), v) in reserveVars.items() if 
                                                         hr == iHr and type in ("TMSR_CAP", "TMNSR_Cap", "TMOR_CAP") )
-        T30_fs, T30_gs = zip(* T30_vars_by_hr )            
-        f = reduce( lambda x, y: numpy.add(numpy.array(x), numpy.array(y) ), T30_fs )
-        g = reduce( lambda x, y: x + y, T30_gs )
-        affCG.addGreaterEqual(f, g, T30_REQ - reserveSlacks[iHr][0], "T30ReqH%d" % iHr)
+        g = reduce( lambda x, y: x + y, T30_vars_by_hr )
+        affCG.model.addConstr(g + reserveSlacks[iHr][2] >= T30_REQ, name="T30ReqH%d" % iHr)
 
 def reserveCapacityAff(model, trueGens, reserveVars, affCG):
     """ No generator can offer more reserve of any type than its capacity allows."""
-    affCG.createVars(4 * len(trueGens) * HORIZON_LENGTH)
     ix = 0
     for name, gen in trueGens.items():
         #TMSR cap is already handled by the on-off
         for iHr in xrange(HORIZON_LENGTH):
-            f, g = reserveVars[name, iHr, "TMSR_Cap"]
-            f2, g2 = reserveVars[name, iHr, "TMNSR_Cap"]
-            f3, g3 = reserveVars[name, iHr, "TMOR_Cap"]
-            #if eco_max is zero, nobody can be non-zero
+            g = reserveVars[name, iHr, "TMSR_Cap"]
+            g2 = reserveVars[name, iHr, "TMNSR_Cap"]
+            g3 = reserveVars[name, iHr, "TMOR_Cap"]
+            #eco_max 0 case is handled by ecoMinMaxConsts
+            #VG Check nominal behavior: total reserves + prod bound by ecoMax.  no spin unless on.
             if gen.eco_max[iHr] <= TOL:
-                for f in f2:
-                    model.addConstr(f == 0)
-                for f in f3:
-                    model.addConstr(f == 0)
-                model.addConstr(g2 == 0)
-                model.addConstr(g3 == 0)
                 continue   
 
-            T10_Cap = min(gen.T10_Cap, gen.eco_max[iHr] )
-            f_tot = numpy.array(f) + numpy.array(f2)
-            affCG.addBoth(f_tot, g + g2, 0., T10_Cap, "T10_Cap%sH%d" % (name, iHr))
+            T10_Cap = min(gen.T10_Cap, gen.eco_max[iHr])
+            affCG.model.addConstr(g + g2 <= T10_Cap, "T10_Cap%sH%d" % (name, iHr))
 
-            T30_Cap = min(gen.T30_Cap, gen.eco_max[iHr] )
-            f_tot = numpy.array(f) + numpy.array(f2)+ numpy.array(f3)
-            affCG.addBoth(f_tot, g + g2 + g3, 0., T30_Cap, "T30_Cap%sH%d" % (name, iHr) )
+            T30_Cap = min(gen.T30_Cap, gen.eco_max[iHr])
+            affCG.model.addConstr(g + g2 + g3, T30_Cap, "T30_Cap%sH%d" % (name, iHr))
 
 def rampingConstsAff(affModelObj, sparse, trueGens):
     affCG = affModelObj.affCG
@@ -386,7 +364,7 @@ def rampingConstsAff(affModelObj, sparse, trueGens):
             ##VG This logic is partially duplicated in "fixRampRates of generator.py"
             # Combine these two.
                 eco_min_m = gen.eco_min[hr - 1]
-                eco_max_m = gen.eco_max[hr -1] 
+                eco_max_m = gen.eco_max[hr - 1] 
                 eco_min = gen.eco_min[hr]
                 eco_max = gen.eco_max[hr]
                 if eco_max <= TOL: #won't run anyway
@@ -397,16 +375,16 @@ def rampingConstsAff(affModelObj, sparse, trueGens):
 
                 #check the ramping down constraint could be tight
                 if gen.ramp_rate < eco_max_m - eco_min:
-                        affCG.addLessEqual(  numpy.array(fm) - numpy.array(f), gm - g, 
-                                                                gen.ramp_rate + eco_max_m * stopVars[name, hr], 
-                                                                "rampingUB%sH%d" % (name, hr) )
+                        affCG.addLessEqual(fm - f, gm - g, 
+                                            gen.ramp_rate + eco_max_m * stopVars[name, hr], 
+                                            "rampingUB%sH%d" % (name, hr))
                                 
                 #check the ramping up constraint could be tight
                 #VG There is a possibility to combine logic with the above for shared constraint
                 if gen.ramp_rate < eco_max - eco_min_m:        
-                    affCG.addGreaterEqual( numpy.array(fm) - numpy.array(f), gm - g, 
-                                                -gen.ramp_rate - eco_max * startVars[name, hr], 
-                                                 "rampingLB%sH%d" % (name, hr) )           
+                    affCG.addLessEqual(f - fm, g - gm, 
+                                        gen.ramp_rate + eco_max * startVars[name, hr], 
+                                        "rampingLB%sH%d" % (name, hr) )
     
     if sparse:
         affCG.model.params.lazyconstraints = True

@@ -318,16 +318,16 @@ def genDecVarsNom(model, gen_dict):
                     grb.quicksum( y * b.price for y, b in zip(ys_all[name, iHr], blocks) ) )
     return dec_vars_amt, dec_vars_cost    
     
-def genStage2VarsNom( model, true_gens):
+def genStage2VarsNom(model, true_gens):
     """Creates the continuous variables for nominal model.
     prod[gen, time], reserve[gen, time, type]
     """
     prod, reserve = {}, {}
     for name, gen in true_gens.items():
         for iHr in range(HORIZON_LENGTH):
-            prod[name, iHr] = model.addVar(name="Prod" + name + "H" + str(iHr) )
+            prod[name, iHr] = model.addVar(name="Prod%sH%d" % (name, iHr))
             for cap_type in generator.GenUnit.RESERVE_PRODUCTS:
-                    reserve[name, iHr, cap_type] = model.addVar(name="Res" + name + "H" + str(iHr) + cap_type)
+                    reserve[name, iHr, cap_type] = model.addVar(name="Res%sH%d%s" % (name iHr, cap_type))
     model.update()
     return prod, reserve
  
@@ -419,11 +419,11 @@ def ecoMinMaxConsts(model, gen_dict, prod_vars, on_vars, reserve_vars):
                                          on_vars[name, iHr] * gen_dict[name].eco_max[iHr], 
                                          name="Ecomax" + name + "H" + str(iHr) )
         #you need to be on in order to offer spinning reserve
-        if (name, iHr, "TMSR_Cap") in reserve_vars:
-            model.addConstr( reserve_vars[name, iHr, "TMSR_Cap"] <= 
-                on_vars[name, iHr] * gen_dict[name].TMSR_Cap, 
-                name="SpinningReserve" + "name" + str(iHr) )
-                
+#        if (name, iHr, "TMSR_Cap") in reserve_vars:  VG eliminate
+        model.addConstr( reserve_vars[name, iHr, "TMSR_Cap"] <= 
+            on_vars[name, iHr] * gen_dict[name].TMSR_Cap, 
+            name="SpinningReserve%sH%d" % (name, iHr))
+            
 def __addLoadBalanceCnst(nomUCObj, load_by_hr, forceBalance=False):
     """ Adds a constraint to minimize the L1 deviation from the load."""
     #Assume that old objects have already been removed
