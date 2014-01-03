@@ -22,12 +22,6 @@ class SparseAffineCutGen:
         self.k, self.kappa = k, math.sqrt(1/eps -1)
         self.auxVars = []
         self.model = model
-
-        #part of the logic for approximating 2 norm depends on 
-        #particular choice of approximation. This will change based on approx
-        #scheme
-        self.numAuxVars2Norm = self.k + self.d
-
         mean = numpy.average(data, axis=0)
         cov = numpy.cov(data, rowvar = False)
 
@@ -54,17 +48,20 @@ class SparseAffineCutGen:
         eig_vals, eig_vecs = numpy.linalg.eigh(cov)
         indx = numpy.argsort(eig_vals)
         self.lambdas = eig_vals[indx[-self.k:] ]
-        self.M = numpy.dot( eig_vecs[:, indx[-self.k:] ], numpy.diag( numpy.sqrt( self.lambdas ) ) )
-
+        self.Mk = numpy.dot( eig_vecs[:, indx[-self.k:] ], numpy.diag( numpy.sqrt( self.lambdas ) ) )
+        self.M = numpy.dot(eig_vecs[:, indx], numpy.diag( numpy.sqrt( eig_vals[indx] ) ) )
         self.mu = mean
         self.invChol = numpy.linalg.cholesky( numpy.linalg.inv(cov) ).T
         
-    def createVars(self, numConstrs):
+    def createVars(self, numConstrs, odd=False):
         """create and cache the vars for a numConstrs distinct robust constraints"""
         for ix in xrange(numConstrs):
             t1 = self.model.addVar()
             t2 = self.model.addVar()
-            norm_vars = [self.model.addVar(lb=-grb.GRB.INFINITY) for ix in xrange(self.numAuxVars2Norm) ]
+            if odd:
+                norm_vars = [self.model.addVar(lb=-grb.GRB.INFINITY) for ix in xrange( 2 * self.d ) ]
+            else:
+                norm_vars = [self.model.addVar(lb=-grb.GRB.INFINITY) for ix in xrange(self.d + self. k) ]
             self.auxVars.append( (t1, t2, norm_vars) )
         self.model.update()    
 
@@ -76,14 +73,14 @@ class SparseAffineCutGen:
         sqrt_d  = math.sqrt(len(v))
         out_objs = []
         for ix, (wi, vi) in enumerate(zip(w, v)):
-            out_objs += [model.addConstr( wi <= vi, name= "%sOneNormA%d" % (tag, ix) ),
-                                    model.addConstr( -wi <= vi, name= "%sOneNormB%d" % (tag, ix) ),
+            out_objs += [model.addConstr( grb.LinExpr(wi) <= vi, name= "%sOneNormA%d" % (tag, ix) ),
+                                    model.addConstr( grb.LinExpr(-wi) <= vi, name= "%sOneNormB%d" % (tag, ix) ),
                                     model.addConstr(vi * sqrt_d <= t, name =  "%sInfNorm%d" % (tag, ix )) ]
         out_objs.append( model.addConstr( grb.quicksum(v) <= sqrt_d * t ) )
         return out_objs
         
     def addLessEqual(self, ybar, gbar, b, tag, ixD=None):
-        """Adds constraints for ybar ^T M_k d + gbar <= d_{ix} + b 
+        """Adds constraints for ybar ^T M_k^T d + gbar <= d_{ix} + b 
         If ix is None, drop the d term
         assert len(ybar) == k"""
         if not self.auxVars : #we didn't precache
@@ -102,12 +99,13 @@ class SparseAffineCutGen:
         out_objs = [t1, t2] + norm_vars
                 
         #Create expressions of requisite size for w1 and w2
-        w1 = numpy.dot(self.M, ybar)
+        w1 = numpy.dot(self.Mk, ybar)
         if ixD is None:
             w2 = [ ybar[i] * self.lambdas[i] for i in xrange(self.k) ]
         else:
             w1[ixD] -= 1 
             w2 = [ybar[i] * self.lambdas[i] - self.M[ixD, i] for i in xrange(self.k) ]
+            w2 += [ -self.M[ixD, i] for i in xrange(self.k , self.d ) ]
 
         self.addNormConstr( w1, t1, v1, "%sw1" % tag )
         self.addNormConstr( w2, t2, v2, "%sw2" % tag )                
@@ -134,12 +132,13 @@ class SparseAffineCutGen:
         #check to make sure gurobi knows what it's doing....
         out_objs = [t1, t2] + norm_vars
         #Create expressions of requisite size for w1 and w2
-        w1 = numpy.dot(self.M, ybar)
+        w1 = numpy.dot(self.Mk, ybar)
         if ixD is None:
             w2 = [ ybar[i] * self.lambdas[i] for i in xrange(self.k) ]
         else:
             w1[ixD] -= 1 
             w2 = [ybar[i] * self.lambdas[i] - self.M[ixD, i] for i in xrange(self.k) ]
+            w2 += [ -self.M[ixD, i] for i in xrange(self.k, self.d ) ]
 
         self.addNormConstr( w1, t1, v1, "%sw1" % tag )
         self.addNormConstr( w2, t2, v2, "%sw2" % tag )                
@@ -167,12 +166,14 @@ class SparseAffineCutGen:
         out_objs = [t1, t2] + norm_vars
 
         #Create expressions of requisite size for w1 and w2
-        w1 = numpy.dot(self.M, ybar)
+        w1 = numpy.dot(self.Mk, ybar)
         if ixD is None:
             w2 = [ ybar[i] * self.lambdas[i] for i in xrange(self.k) ]
         else:
             w1[ixD] -= 1 
             w2 = [ybar[i] * self.lambdas[i] - self.M[ixD, i] for i in xrange(self.k) ]
+            w2 += [ -self.M[ixD, i] for i in xrange(self.k, self.d ) ]
+
         out_objs += self.addNormConstr( w1, t1, v1, "%sw1" % tag )
         out_objs += self.addNormConstr( w2, t2, v2, "%sw2" % tag )                
         #the master equations
@@ -195,7 +196,7 @@ class SparseAffineCutGen:
         zetas /= map(numpy.linalg.norm, zetas.T)
         zetas *= self.kappa
         us = self.mu + self.invChol * zetas
-        Mus = numpy.dot(self.M.T, self.u)
+        Mus = numpy.dot(self.Mk.T, self.u)
         
         #VG Check the dimensions of Mus and us and stuff
         pdb.set_trace()
@@ -212,15 +213,16 @@ class SparseAffineCutGen:
                         + gbar <= b + us[ixD, ix], name = tag +"Sample%d" % ix  )
             return
             
-    def subGradNorm( x ):
-        """Return a subgradient of the scaled approx norm"""
+    def subGradNorm(self,  x ):
+        """Return a subgradient of the scaled approx norm. 
+        x should be a d dimensional vector in cannonical basis (not eigen) """
         sqrt_d = math.sqrt( self.d )
         one_norm = numpy.linalg.norm(x, 1)
-        inf_norm = numpy.linalg.norm(x, 'inf')
+        inf_norm = numpy.linalg.norm(x, numpy.inf)
         def sgn(t):
             if t > 0:
                 return 1.
-            elif: t < 0:
+            elif t < 0:
                 return -1.
             else:
                 return 0.
@@ -229,43 +231,27 @@ class SparseAffineCutGen:
         else:
             indx = numpy.argmax(numpy.absolute(x) )
             out = numpy.zeros( len(x) )
-            out[indx] = sgn( x[ indx ])
+            out[indx] = sgn( x[ indx ]) * sqrt_d
             return out
 
     def suppFcn(self, y ):
-        """ Computes max_u in u y^T M u.  returns both ustar and value """
-        x = numpy.dot(self.M, ybar)
+        """ Computes max_u in u y^T M^T u.  returns both ustar and value """
+        f = numpy.dot(self.Mk, y)
         #compute the subgradient explicitly
-        ustar = self.mu + self.gamma1 * self.subGradNorm( x ) + 
-                self.kappa * numpy.dot(self.M.T, subGradNorm( numpy.dot(self.M * x ))) ##VG Double check
-        val = numpy.dot(ustar, x)
+        ustar = self.mu + self.gamma1 * self.subGradNorm( f ) + \
+                self.kappa * numpy.dot(self.M, self.subGradNorm( numpy.dot(self.M.T , f ))) ##VG Double check
+        val = numpy.dot(ustar, f)
 
         #VG Debug double check:
         sqrt_d = math.sqrt( self.d )
-        one_norm = numpy.linalg.norm(x, 1)
-        inf_norm = numpy.linalg.norm(x, 'inf')
-        y = numpy.dot(self.M, x)
-        val2 = numpy.dot(self.mu, x) + self.gamma1 * max(one_norm / sqrt_d, inf_norm * sqrt_d) + 
-            self.kappa * max(one_norm / sqrt_d, inf_nom * sqrt_d )
+        one_norm = numpy.linalg.norm(f, 1)
+        inf_norm = numpy.linalg.norm(f, numpy.inf)
+        mf = numpy.dot(self.M.T, f)
+        one_normMf = numpy.linalg.norm(mf, 1)
+        inf_normMf = numpy.linalg.norm(mf, numpy.inf)
+        val2 = numpy.dot(self.mu, f) + self.gamma1 * max(one_norm / sqrt_d, inf_norm * sqrt_d) + \
+            self.kappa * max(one_normMf / sqrt_d, inf_normMf * sqrt_d )
         if abs(val - val2) > 1e-7:
             #Something wonky
             pdb.set_trace()
-
-        return ustar, val
-
-#     def genCut(self, ybar_vals, gbar_val, b, TOL=1e-6):
-#         """Generates a violated constraint for family ybar ^T M_k d + gbar <= b 
-#         Returns None if valid."""
-#         w1 = numpy.dot(self.M, ybar_vals)
-#         sqrt_n = math.sqrt(len(w1))
-#         t1 = max( numpy.linalg.norm(w1, 1) / sqrt_n , numpy.linalg.norm(w1, numpy.inf) * sqrt_n ) 
-#         w2 = [ybar_vals[i] * self.lambdas[i] for i in xrange(self.k) ]
-#         sqrt_n = math.sqrt(len(w2))
-#         t2 = max( numpy.linalg.norm(w2, 1) / sqrt_n, numpy.linalg.norm(w2, numpy.inf) * sqrt_n )
-#         val = numpy.dot(self.mu, w1) + self.gamma1 * t1 + self.kappa * t2 + gbar_val
-#         if b - val >= TOL:
-#             return None
-#         else:
-#             wah wah
-        
-
+        return numpy.dot(self.Mk.T, ustar), val

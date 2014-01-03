@@ -122,7 +122,6 @@ def buildSolveNom(gen_dict, TMSR_REQ, T10_REQ, T30_REQ, load_by_hr,
     return nomUCObj.summarizeSolution(gen_dict)
 
 def updateSolveSecondStage( UCObj, new_load_by_hr, gen_dict, on_vals, start_vals, forceBalance=False ):
-    pdb.set_trace()
     UCObj.removeOldCnsts()
     model = UCObj.model
     old_objs = []

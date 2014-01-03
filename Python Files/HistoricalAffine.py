@@ -82,18 +82,50 @@ affCG = cg.SparseAffineCutGen(resids, eps, 5, m, .5 * delta, .5 * delta,
                                                                 gamma1=0.00246590712422, gamma2= 0.00216257393186)
 
 #build one model for the affine stuff
-affModel = buildAff.__buildAffNoLoad(affCG, genDict, TMSR_REQ, T10_REQ, T30_REQ, False, True)
+affModel = buildAff.__buildAffNoLoad(affCG, genDict, TMSR_REQ, T10_REQ, T30_REQ, False, False)
 
 # for each day in the validation set,
 for ix, (line_load, line_fit) in enumerate(zip(file_loads, file_preds)):
-    if ix > 1:
+    if ix > 0:
         sys.exit()
         
     predLoads = [float(l) * 1e-3  * load_ratio for l in line_fit[2:26] ]
+    predLoads[13] *= 20
+    print "Bumped Load", predLoads[13]
 
     #Update the affine model and solve
     onVals, startVals, fixedCostAff, totCostAff, prodByHrAff, varCostsAff = \
             buildAff.resolve(affModel, predLoads, genDict)
+
+    ### SEEMS some sort of bug
+    print "Load, Slack:\t", predLoads[13], affModel.slacks[13].x
+    print "Sys Prods:"
+    pdb.set_trace()
+    f_sys, g_sys = {}, {}     #remember, we've ignored Inc/Decs
+    for name, hr in affModel.prodVars:
+        f, g = affModel.prodVars[name, hr]
+        if hr not in f_sys:
+            f_sys[hr] = numpy.array( [fi.x for fi in f ] )
+            g_sys[hr] =  g.x
+        else:
+            f_sys[hr] +=  [fi.x for fi in f] 
+            g_sys[hr] += g.x
+
+    for name, hr in affModel.flexLoads:
+        f, g = affModel.flexLoads[ name, hr]
+        f_sys[hr] -= [fi.x for fi in f]
+        g_sys[hr] -= g.x
+
+    print f_sys[13], g_sys[13]
+
+    #print the name of everyone running in that hour
+    for (name, hr), v in affModel.onVars.items():
+        if hr == 13 and v.x > .5:
+            print name, affModel.prodVars[name, hr][1].x,
+            print affModel.variableCostVars[name, hr].x            
+        
+
+
     summarize.writeHourlySchedCap(file_out, line_load[1], onVals, genDict)
 
     #extract the period 1 solutions, and solve stage 2
