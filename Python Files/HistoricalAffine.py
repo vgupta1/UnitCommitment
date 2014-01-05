@@ -82,7 +82,7 @@ affCG = cg.SparseAffineCutGen(resids, eps, 5, m, .5 * delta, .5 * delta,
                                                                 gamma1=0.00246590712422, gamma2= 0.00216257393186)
 
 #build one model for the affine stuff
-affModel = buildAff.__buildAffNoLoad(affCG, genDict, TMSR_REQ, T10_REQ, T30_REQ, False, False)
+affModel = buildAff.__buildAffNoLoad(affCG, genDict, TMSR_REQ, T10_REQ, T30_REQ, True)
 
 # for each day in the validation set,
 for ix, (line_load, line_fit) in enumerate(zip(file_loads, file_preds)):
@@ -90,17 +90,24 @@ for ix, (line_load, line_fit) in enumerate(zip(file_loads, file_preds)):
         sys.exit()
         
     predLoads = [float(l) * 1e-3  * load_ratio for l in line_fit[2:26] ]
-    predLoads[13] *= 20
-    print "Bumped Load", predLoads[13]
+#     predLoads[13] *= 20
+#     print "Bumped Load", predLoads[13]
 
     #Update the affine model and solve
     onVals, startVals, fixedCostAff, totCostAff, prodByHrAff, varCostsAff = \
             buildAff.resolve(affModel, predLoads, genDict)
 
+    #compute the magnitude of each fvec and their max magnitude
+    maxval = 0.
+    for ((name, hr), (fvec, g) ) in affModel.prodVars.items():
+        if numpy.linalg.norm([ fi.x for fi in fvec], numpy.inf)  > 1e-10:
+            print name, hr, fvec, g
+        maxval = max(maxval, numpy.linalg.norm([ fi.x for fi in fvec], numpy.inf) )
+    print "max val:\t", maxval
+
     ### SEEMS some sort of bug
     print "Load, Slack:\t", predLoads[13], affModel.slacks[13].x
     print "Sys Prods:"
-    pdb.set_trace()
     f_sys, g_sys = {}, {}     #remember, we've ignored Inc/Decs
     for name, hr in affModel.prodVars:
         f, g = affModel.prodVars[name, hr]
@@ -125,7 +132,7 @@ for ix, (line_load, line_fit) in enumerate(zip(file_loads, file_preds)):
             print affModel.variableCostVars[name, hr].x            
         
 
-
+#    pdb.set_trace()
     summarize.writeHourlySchedCap(file_out, line_load[1], onVals, genDict)
 
     #extract the period 1 solutions, and solve stage 2

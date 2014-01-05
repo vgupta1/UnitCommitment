@@ -327,7 +327,7 @@ def genStage2VarsNom(model, true_gens):
         for iHr in range(HORIZON_LENGTH):
             prod[name, iHr] = model.addVar(name="Prod%sH%d" % (name, iHr))
             for cap_type in generator.GenUnit.RESERVE_PRODUCTS:
-                    reserve[name, iHr, cap_type] = model.addVar(name="Res%sH%d%s" % (name iHr, cap_type))
+                    reserve[name, iHr, cap_type] = model.addVar(name="Res%sH%d%s" % (name, iHr, cap_type))
     model.update()
     return prod, reserve
  
@@ -344,7 +344,7 @@ def genFlexibleDemandVarsNom( model, gen_dict ):
             flex_loads[name, iHr] = model.addVar(lb=gen.eco_min[iHr ], 
                                                                                  ub = gen.eco_max[iHr], 
                                                                                  obj=-gen.offerBlocks.values()[0][0].price, 
-                                                                                 name="FlexLoad" + name + "H" + str(iHr) )
+                                                                                 name="FlexLoad%sH%d" % (name , iHr) )
     return flex_loads
 
 def reserveRequirements(model, reserve_vars, TMSR_REQ, T10_REQ, T30_REQ):

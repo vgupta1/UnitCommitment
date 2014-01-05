@@ -52,6 +52,22 @@ class SparseAffineCutGen:
         self.M = numpy.dot(eig_vecs[:, indx], numpy.diag( numpy.sqrt( eig_vals[indx] ) ) )
         self.mu = mean
         self.invChol = numpy.linalg.cholesky( numpy.linalg.inv(cov) ).T
+
+        #compute the alpha terms used when computing upperbounds
+        self.alphas_p, self.alphas_m = [], []
+        for ik in range(self.k):
+            v = self.Mk[:, ik] / math.sqrt( self.lambdas[ik] )
+            Lv = numpy.dot(self.invChol, v)
+            Lmu = numpy.dot(self.invChol, self.mu)
+            a = numpy.dot(Lv.T, Lv)
+            b = - 2 * numpy.dot(Lmu.T, Lv)
+            c = numpy.dot(Lmu.T, Lmu) - self.kappa**2
+            alpha_p = (-b + math.sqrt( b*b - 4 * a * c) ) / 2. / a
+            alpha_m = (-b - math.sqrt( b*b - 4 * a * c) ) / 2. / a
+            assert alpha_p >= 0
+            assert alpha_m <= 0
+            self.alphas_p.append( alpha_p )
+            self.alphas_m.append( alpha_m )
         
     def createVars(self, numConstrs, odd=False):
         """create and cache the vars for a numConstrs distinct robust constraints"""
@@ -242,16 +258,26 @@ class SparseAffineCutGen:
                 self.kappa * numpy.dot(self.M, self.subGradNorm( numpy.dot(self.M.T , f ))) ##VG Double check
         val = numpy.dot(ustar, f)
 
-        #VG Debug double check:
-        sqrt_d = math.sqrt( self.d )
-        one_norm = numpy.linalg.norm(f, 1)
-        inf_norm = numpy.linalg.norm(f, numpy.inf)
+        #VG Debug double check  Checked once... needs one more go through:
+        norm_f = self.normApprox( f )
         mf = numpy.dot(self.M.T, f)
-        one_normMf = numpy.linalg.norm(mf, 1)
-        inf_normMf = numpy.linalg.norm(mf, numpy.inf)
-        val2 = numpy.dot(self.mu, f) + self.gamma1 * max(one_norm / sqrt_d, inf_norm * sqrt_d) + \
-            self.kappa * max(one_normMf / sqrt_d, inf_normMf * sqrt_d )
+        norm_mf = self.normApprox( mf )
+        val2 = numpy.dot(self.mu, f) + self.gamma1 * norm_f + self.kappa * norm_mf
         if abs(val - val2) > 1e-7:
             #Something wonky
             pdb.set_trace()
         return numpy.dot(self.Mk.T, ustar), val
+        
+    def normApprox(self, x):
+        """Compute max( one_norm / sqrt(d), inf_norm * sqrt_d) """
+        sqrt_d = math.sqrt(self.d)
+        return max( numpy.linalg.norm(x, 1) / sqrt_d, numpy.linalg.norm(x, numpy.inf) * sqrt_d )
+
+    def boundElem(self, rhs ):
+        """Upper and bounds the elements of y assuming that y^T M_k^T u <= rhs for all u in U """
+        #compute size of maximal eigenvalues in each direction
+        out = []
+        for ik in xrange(self.k):
+            t = rhs / math.sqrt(self.lambdas[ik] )
+            out.append( (t / self.alphas_m[ik] , t / self.alphas_p[ik] ))
+        return out

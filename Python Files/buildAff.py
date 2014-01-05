@@ -20,7 +20,7 @@ class AffModel:
         self.genDict = genDict
         self.trueGens = dict(filter(lambda (n, g): g.res_type == "GEN" and g.fuel_type <> "FixedImport", 
                                 genDict.items() ) )
-        self.hasCallBack = false
+        self.hasCallBack = False
 
     def removeOldObjs(self):
         for o in self.balanceObjs:
@@ -81,7 +81,6 @@ class AffModel:
                         resid_star, value = self.affCG.suppFcn(fmval - fval)
                         value += gmval - gval
                         if value > gen.ramp_rate + 1e-5: #VG return to this
-                            print "Ramping CallBack Used!"
                             self.affCG.model.cbLazy(grb.quicksum((fmi - fi) * ri for (fmi, fi, ri) in 
                                                                 zip(fm, f, resid_star) ) + gm - g <= 
                                     gen.ramp_rate + eco_max_m * self.stopVars[name, hr])
@@ -90,7 +89,6 @@ class AffModel:
                         resid_star, value = self.affCG.suppFcn(fval - fmval)
                         value += gval - gmval
                         if value > gen.ramp_rate + 1e-5: #VG return to this
-                            print "RampingCallBack Used!"
                             self.affCG.model.cbLazy(grb.quicksum((fi - fmi) * ri for (fi, fmi, ri) in 
                                                                 zip(f, fm, resid_star) ) + g - gm <=
                                     gen.ramp_rate + eco_max * self.startVars[name, hr])
@@ -105,7 +103,8 @@ def __buildAffNoLoad(affCG, genDict, TMSR_REQ, T10_REQ, T30_REQ, sparseRamps):
     minDownConstraints(m, trueGens, onVars)
 
     prodVars, reserveVars = genStage2VarsAff(m, trueGens, affCG.k)
-    flexLoads = genFlexibleDemandVarsAff(m, genDict, affCG.k)
+#    flexLoads = genFlexibleDemandVarsAff(m, genDict, affCG.k)
+    flexLoads = {}
     variableCostVars = addPiecewiseCostsAff(m, trueGens, prodVars, affCG)
     ecoMinMaxConstsAff(m, genDict, prodVars, onVars, reserveVars, affCG)
     reserveRequirementsAff(m, reserveVars, TMSR_REQ, T10_REQ, T30_REQ, affCG)    
@@ -113,7 +112,7 @@ def __buildAffNoLoad(affCG, genDict, TMSR_REQ, T10_REQ, T30_REQ, sparseRamps):
 
     o = AffModel(m, onVars, startVars, stopVars, prodVars, reserveVars, variableCostVars, 
                                     flexLoads, costVar, affCG, genDict)
-#    rampingConstsAff(o, sparseRamps, trueGens)
+    rampingConstsAff(o, sparseRamps, trueGens)
     return o
 
 def __addLoadBalanceCnst(affModel, predLoads):
@@ -122,7 +121,7 @@ def __addLoadBalanceCnst(affModel, predLoads):
     model = affModel.model
 
     #add a slack variable for the amount missed.    
-    slacks = [model.addVar(obj=PENALTY)  for ix in xrange(HORIZON_LENGTH) ]
+    slacks = [model.addVar(obj=PENALTY, name="SlackH%d" % ix)  for ix in xrange(HORIZON_LENGTH) ]
     model.update()
     f_sys, g_sys = {}, {}     #remember, we've ignored Inc/Decs
     for name, hr in affModel.prodVars:
@@ -162,15 +161,14 @@ def resolve( affModel, predLoads, genDict, onValsHint={}, startValsHint={}):
     
     model.update()
     model.printStats()
-#    model.write("sample.mps")
-#    model.write("sample.lp")
-#    sys.exit()
-#    model = model.relax()
-    if affModel.hasCallback():
+    model.params.mipgap = 5e-3
+    if affModel.hasCallBack:
         def mycallback(model, where):
             return affModel.rampingCallback(where)
         model.optimize( mycallback )
     else:
+#         model.write("tuning.lp")
+#         sys.exit()
         model.optimize()
     return affModel.summarizeSolution(genDict)
 
@@ -202,6 +200,8 @@ def genFlexibleDemandVarsAff( model, genDict, k ):
     This formulation requires we call a separate function to add the lower and upper bounds and
     associated cost
     """
+    raise NotImplementedError()
+    #right now the costs of flex loads are not being correctly accounted for....
     flexLoads = {}
     for name, gen in genDict.items():
         if gen.res_type <> "LOAD" or not gen.isFlexible:
@@ -210,7 +210,7 @@ def genFlexibleDemandVarsAff( model, genDict, k ):
         #these flex loads have a single block bid structure
         for iHr in range(HORIZON_LENGTH):
             fvec = [model.addVar(lb = -grb.GRB.INFINITY) for ix in xrange(k) ]             
-            flexLoads[name, iHr] = (fvec, model.addVar(lb= -grb.GRB.INFINITY) )
+            flexLoads[name, iHr] = (fvec, model.addVar() )  # assumes u in 0
     return flexLoads
 
 def addPiecewiseCostsAff(model, trueGens, prodVars, affCG):
@@ -256,7 +256,7 @@ def addPiecewiseCostsAff(model, trueGens, prodVars, affCG):
                             "PieceWiseCost%s%d" % (name, iHr), ixD=None)
     return costVars
 #VG Test the value of M is sufficient?
-def ecoMinMaxConstsAff(model, genDict, prodVars, onVars, reserveVars, affCG, M = 1e2):
+def ecoMinMaxConstsAff(model, genDict, prodVars, onVars, reserveVars, affCG, M = 5e1):
     """
     on_var * eco_min <= prodVars + reserve <= onVars * eco_max
     actually implemented slightly smarter than this to get a locally ideal formulation
@@ -287,9 +287,10 @@ def ecoMinMaxConstsAff(model, genDict, prodVars, onVars, reserveVars, affCG, M =
         eco_max = genDict[name].eco_max[iHr]
         fprod, gprod = prodVars[name, iHr]
         model.addConstr( gprod <= onVars[name, iHr] * eco_max )  #assumes 0 in U
-        for f in fprod:
-            model.addConstr( f <= onVars[name, iHr] * M )
-            model.addConstr( f >= -onVars[name, iHr] * M )
+        bounds = affCG.boundElem( eco_max )
+        for f, (l,u) in zip(fprod, bounds):
+            model.addConstr( f <= onVars[name, iHr] * u )
+            model.addConstr( f >= onVars[name, iHr] * l )  # minus sign is subsumed within l
         
         #spinning reserve bounded by TMSR_Cap
         #Other bounds on reserve handled in the reserve capacity function
@@ -316,6 +317,7 @@ def reserveRequirementsAff(model, reserveVars, TMSR_REQ, T10_REQ, T30_REQ, affCG
                        model.addVar(obj=PENALTY, name="SlackT10_REQ%d" % ix), 
                        model.addVar(obj=PENALTY, name="SlackT30_REQ%d" % ix) ) 
                                     for ix in xrange(HORIZON_LENGTH)]
+    model.update()
     for iHr in xrange(HORIZON_LENGTH):
         TMSR_vars_by_hr = ( v for ((name, hr, type), v) in reserveVars.items() if 
                                                         hr == iHr and type == "TMSR_Cap" )
@@ -350,7 +352,7 @@ def reserveCapacityAff(model, trueGens, reserveVars, affCG):
             affCG.model.addConstr(g + g2 <= T10_Cap, "T10_Cap%sH%d" % (name, iHr))
 
             T30_Cap = min(gen.T30_Cap, gen.eco_max[iHr])
-            affCG.model.addConstr(g + g2 + g3, T30_Cap, "T30_Cap%sH%d" % (name, iHr))
+            affCG.model.addConstr(g + g2 + g3 <= T30_Cap, "T30_Cap%sH%d" % (name, iHr))
 
 def rampingConstsAff(affModelObj, sparse, trueGens):
     affCG = affModelObj.affCG
@@ -388,6 +390,6 @@ def rampingConstsAff(affModelObj, sparse, trueGens):
     
     if sparse:
         affCG.model.params.lazyconstraints = True
-        affModelObj.setRampCallback(trueGens)
+        affModelObj.setRampCallback()
         
     return
