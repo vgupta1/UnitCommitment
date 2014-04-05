@@ -1,5 +1,6 @@
 ISO-NE/
 Data/
+temp/
 *.pyc
 
 ## Gurobi Cruft
