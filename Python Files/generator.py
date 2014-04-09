@@ -349,18 +349,21 @@ def doEverything():
     addGenParameter("../AndysGenInstance/pMinUpTime.txt", "min_up", gen_dict, hasTime=False)
     addGenParameter("../AndysGenInstance/pNoloadcost.txt", "no_load", gen_dict, hasTime=False, scaling=1e-3)
     addGenParameter("../AndysGenInstance/pRampRate.txt", "ramp_rate", gen_dict, hasTime=False, scaling=1e-3)
+    addReserveCap("../AndysGenInstance/pReserveCapacity.txt", gen_dict, scaling=1e-3)
+    
+    ##VG Treat these quickly
     addGenParameter("../AndysGenInstance/pFixEnergy.txt", "fixed_energy", gen_dict, hasTime=True, scaling=1e-3)
-
     addFlexResources( "../AndysGenInstance/SetFlxEgr.txt", gen_dict)
     addMustRunHours("../AndysGenInstance/SetMustRun.txt", gen_dict)
     addFlexReserves("../AndysGenInstance/SetFlexReserve.txt", gen_dict)
-    addReserveCap("../AndysGenInstance/pReserveCapacity.txt", gen_dict, scaling=1e-3)
+
     addStartUpBlocks( "../AndysGenInstance/pOfflineHr.txt", 
                                         "../AndysGenInstance/pStartUpCost.txt", 
                                         "../AndysGenInstance/pStartupTime.txt", 
                                         "../AndysGenInstance/pNotTime.txt", gen_dict, scaling=1e-3)
-    
     addOfferBlocks( "../AndysGenInstance/pEnergyBidPrice.txt", "../AndysGenInstance/pEnergyBidSize.txt", gen_dict)
+
+
     fixRampRates(true_gens)
 
     for g in true_gens.values():
