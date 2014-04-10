@@ -58,11 +58,6 @@ function getCurve( g::Generator )
 end    
 
 
-
-
-
-
-
 function splitName( sname )
     #strip surrounding single quotes
     sname2 = strip(sname)
@@ -269,7 +264,7 @@ function addStartCosts!(path, gens; scaling=1e-3)
 	    block, val = split(blockval)
 
 	    if int(block) == 2  #only take warm starts for now.  Data must contain blocks for everyone
-	        gens[name].startcost = float(val) * 1-3
+	        gens[name].startcost = float(val) * scaling
 	    end
 	end
 	close(fp)

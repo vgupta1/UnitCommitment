@@ -25,3 +25,5 @@ type Generator
 end
 Generator(name, fueltype) = Generator(name, fueltype, 0., HRS, 0, 0, 0, Dict{Int, Block}(), Float64[], Float64[])
 
+getCap(gen, hr) = gen.ecomax[hr]
+getCap(gen) = maximum(gen.ecomax)
