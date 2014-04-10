@@ -1,6 +1,6 @@
 include("readGenerator.jl")
 include("readLoads.jl")
-include("solver.jl")
+include("nomsolver.jl")
 
 genstub = "../Data/AndysGenInstance"
 gens = loadISO(genstub)
