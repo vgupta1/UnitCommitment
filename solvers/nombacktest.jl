@@ -10,10 +10,11 @@ dts, vals = readLoads("$loadstub/predtest.csv");
 dtstrue, valstrue = readLoads("$loadstub/LoadTest.csv")    
 assert(size(vals, 1) == size(valstrue, 1))
 filesummary = open(ARGS[1], "w"); filehrs = open(ARGS[2], "w")
+numruns = length(ARGS) > 2 ?  int(ARGS[3]) : size(vals, 1)
 
-for iRun = 1:size(vals, 1)
+for iRun = 1:numruns
 	forecast = vals[iRun, :]; loads = valstrue[iRun, :]
-	m = Model(solver=GurobiSolver(TimeLimit=1*60))
+	m = RobustModel(solver=GurobiSolver(TimeLimit=1*60))
 	nom = UCNom(m, gens, 5000)
 	status1 = solve(nom, forecast)
 
