@@ -11,7 +11,7 @@ genstub = "../Data/AndysGenInstance"
 gens = loadISO(genstub)
 loadstub = "../Data/ISO-NE\ Load\ Data"
 
-dts, vals = readLoads("$loadstub/predtest.csv");
+dts, vals = readLoads("$loadstub/PredTest.csv");
 dtstrue, valstrue = readLoads("$loadstub/LoadTest.csv")    
 assert(size(vals, 1) == size(valstrue, 1))
 fileout = open(ARGS[1], "w");
