@@ -39,3 +39,7 @@ temp/
 *.pdfsync
 
 *.txt
+
+solvers/bugs.jl
+
+solvers/bugs2.jl

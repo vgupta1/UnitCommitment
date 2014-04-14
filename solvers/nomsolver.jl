@@ -16,8 +16,8 @@ getVarCost(ucbase, hr) = sum([ getVarCost(ucbase, g, hr) for g in values(ucbase.
 getVarCost(ucbase) = sum([getVarCost(ucbase, hr) for hr in 1:HRS])
 getgap(ucbase) = (t=getInternalModel(ucbase.m); (getobjval(t) - getobjbound(t))/getobjval(t))
 getCap(ucbase, hr) = sum([getCap(g, hr) * getValue(ucbase.ons[g.name][hr]) for g in values(ucbase.gendata)])
-getCap(ucbase) = sum([getCap(hr) for hr = 1:HRS])
-
+getCap(ucbase) = sum([getCap(ucbase, hr) for hr = 1:HRS])
+totShed(ucbase) = sum(map(getValue, ucbase.sheds))
 
 #Adds on, starting, stopping variables for a single generator
 function addFirstStage(m; HRS=24)
@@ -88,7 +88,8 @@ function secondSolve(ucbase, loads)
    println("Build Time \t $buildTime")
    println("Solve Time \t $solveTime")
    println("Start Costs\t $(getStartCost(ucbase))")
-   println("Objective\t $(getObjectiveValue(ucbase.m))")
+   println("Second Stage\t $(getObjectiveValue(nom2.m) - getStartCost(ucbase))")
+   println("Tot Shed\t $(totShed(nom2))")
    return nom2
 end
 
@@ -171,7 +172,7 @@ type UCNom
             Dict{String, Any}(), Dict{String, Any}(), Dict{String, Any}(), 
             Dict{String, Any}(), AffExpr[], Variable[])
 end
-UCNom(gens; PENALTY=5000.) = UCNom(RobustModel(solver=GurobiSolver()), gens, PENALTY)
+UCNom(gens; PENALTY=5000.) = UCNom(RobustModel(solver=GurobiSolver(OutputFlag=0)), gens, PENALTY)
 
 function addSecondStage!(nom; TOL=1e-8)
     for g in values(nom.gendata)
