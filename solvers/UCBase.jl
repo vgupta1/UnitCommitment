@@ -1,12 +1,10 @@
+### 
+# UC Base
 ###
-# Helper Functions for building the Nominal UC Model
-###
-using JuMPeR, Gurobi, MathProgSolverInterface
-#include("generators.jl")  #Speak to iain about file heirarchy
-
-##########################
-# Generic functions meant to work with any ucmodel...
+# Contains generic functionality which should pertain to all UC Models (nominal robust, affine)
 # VG Introduce a subdata type to make this more obvious/consistent
+include("UCNom.jl")  #VG Fix Heirarchy
+
 #Assumes already solved  VG: Add a check
 getStartCost(ucbase, gen, hr) = gen.startcost * getValue(ucbase.starts[gen.name][hr])
 getStartCost(ucbase, hr) = sum([getStartCost(ucbase, g, hr) for g in values(ucbase.gendata)])
@@ -65,32 +63,34 @@ function addMinDown(m, xs, ys, minDown::Int)
     end
 end
 
-function secondSolve(ucbase, loads)
-    tic()
-    nom2 = UCNom(ucbase.gendata, PENALTY = ucbase.penalty)
+function secondSolve(ucbase, loads; report=true)
+	tic()
+	nom2 = UCNom(ucbase.gendata, PENALTY = ucbase.penalty)
 
-    #copy over first stage solution
-    for g in values(nom2.gendata)
-        nom2.ons[g.name] = map(v->getValue(v), ucbase.ons[g.name][:])
-        nom2.starts[g.name] = map(v->getValue(v), ucbase.starts[g.name][:])
-        nom2.stops[g.name] = map(v->getValue(v), ucbase.stops[g.name][:])
-    end
-    addSecondStage!(nom2)  
-    addLoadBalance!(nom2, loads)
-    @setObjective(nom2.m, Min, sum{g.startcost*nom2.starts[g.name][ihr], g in values(nom2.gendata), ihr=1:HRS} + 
-                        + sum{nom2.varcosts[g.name][ihr], g in values(nom2.gendata), ihr=1:HRS} + 
-                        nom2.penalty * sum{nom2.sheds[ihr], ihr=1:HRS})
+	#copy over first stage solution
+	for g in values(nom2.gendata)
+	    nom2.ons[g.name] = map(v->getValue(v), ucbase.ons[g.name][:])
+	    nom2.starts[g.name] = map(v->getValue(v), ucbase.starts[g.name][:])
+	    nom2.stops[g.name] = map(v->getValue(v), ucbase.stops[g.name][:])
+	end
+	addSecondStage!(nom2)  
+	addLoadBalance!(nom2, loads)
+	@setObjective(nom2.m, Min, sum{g.startcost*nom2.starts[g.name][ihr], g in values(nom2.gendata), ihr=1:HRS} + 
+	                    + sum{nom2.varcosts[g.name][ihr], g in values(nom2.gendata), ihr=1:HRS} + 
+	                    nom2.penalty * sum{nom2.sheds[ihr], ihr=1:HRS})
+	JuMPeR.solve(nom2.m, load_model_only=true)
+	buildTime = toq()
+	tic(); status = JuMPeR.solve(nom2.m); solveTime = toq()
 
-   JuMPeR.solve(nom2.m, load_model_only=true)
-   buildTime = toc()
-   tic(); status = JuMPeR.solve(nom2.m); solveTime = toc()
-
-   println("Build Time \t $buildTime")
-   println("Solve Time \t $solveTime")
-   println("Start Costs\t $(getStartCost(ucbase))")
-   println("Second Stage\t $(getObjectiveValue(nom2.m) - getStartCost(ucbase))")
-   println("Tot Shed\t $(totShed(nom2))")
-   return nom2
+	if report
+		println("Build Time \t $buildTime")
+		println("Solve Time \t $solveTime")
+		println("Start Costs\t $(getStartCost(ucbase))")
+		println("Capacity \t $(getCap(ucbase))")
+		println("Second Stage\t $(getObjectiveValue(nom2.m) - getStartCost(ucbase))")
+		println("Tot Shed\t $(totShed(nom2))")
+	end
+	return nom2
 end
 
 #adds first stage variables and constraints for all generators 
@@ -121,12 +121,12 @@ function addFirstStage!(ucbase; TOL=1e-8)
 end
 
 #The whole shebang
-function solve(ucbase, forecasts; forceserve=false)
-   tic();
-   addFirstStage!(ucbase)
-   addSecondStage!(ucbase)
-   addLoadBalance!(ucbase, forecasts)
-   @setObjective(ucbase.m, Min, sum{g.startcost*ucbase.starts[g.name][ihr], g in values(ucbase.gendata), ihr=1:HRS} + 
+function solve(ucbase, forecasts; forceserve=false, report=true)
+	tic();
+	addFirstStage!(ucbase)
+	addSecondStage!(ucbase)
+	addLoadBalance!(ucbase, forecasts)
+	@setObjective(ucbase.m, Min, sum{g.startcost*ucbase.starts[g.name][ihr], g in values(ucbase.gendata), ihr=1:HRS} + 
                         + sum{ucbase.varcosts[g.name][ihr], g in values(ucbase.gendata), ihr=1:HRS} + 
                         ucbase.penalty * sum{ucbase.sheds[ihr], ihr=1:HRS})
 
@@ -135,45 +135,24 @@ function solve(ucbase, forecasts; forceserve=false)
             @addConstraint(ucbase.m, ucbase.sheds[ix] == 0)
         end
     end
+    buildTime = toq();
 
-   #Load the model only for timing
-   JuMPeR.solve(ucbase.m, load_model_only=true)
-   buildTime = toc();
-   tic(); status = JuMPeR.solve(ucbase.m); solveTime = toc();
+	#Load the model only for timing
+	tic(); status = solve_(ucbase, report); solveTime = toq();
 
-   println("Build Time \t $buildTime")
-   println("Solve Time \t $solveTime")
-   println("Start Costs\t $(getStartCost(ucbase))")
-   println("Objective\t $(getObjectiveValue(ucbase.m))")
-   return status
+	if report 
+		println("Build Time \t $buildTime")
+		println("Solve Time \t $solveTime")
+		println("Start Costs\t $(getStartCost(ucbase))")
+		println("Capacity \t $(getCap(ucbase))")
+		println("Second Stage\t $(getVarCost(ucbase))")
+		println("Tot Shed \t $(totShed(ucbase))")
+		println("Objective\t $(getObjectiveValue(ucbase.m))")
+	end
+	return status
 end
 
-
-###############################################
-# Now implement the nominal model
-type UCNom
-    m  #model
-    gendata #handle to the generator dictionary
-    penalty
-
-    #::Dict{String, Array{Variable, 1}}
-    ons 
-    starts 
-    stops 
-    prod 
-    varcosts  #cost of generation
-    
-    ##::Array{AffExpr, 1}
-    load_diffs
-    sheds
-
-    #Ask Iain about this... seems poor form
-    UCNom(model, gens, penalty) =new(model, gens, penalty, Dict{String, Any}(), 
-            Dict{String, Any}(), Dict{String, Any}(), Dict{String, Any}(), 
-            Dict{String, Any}(), AffExpr[], Variable[])
-end
-UCNom(gens; PENALTY=5000.) = UCNom(RobustModel(solver=GurobiSolver(OutputFlag=0)), gens, PENALTY)
-
+#used both by nominal and robust
 function addSecondStage!(nom; TOL=1e-8)
     for g in values(nom.gendata)
         nom.prod[g.name] = [addProdVar!(nom.m, nom.ons[g.name][ihr], g.ecomin[ihr], g.ecomax[ihr], TOL) for ihr=1:HRS]
@@ -181,19 +160,6 @@ function addSecondStage!(nom; TOL=1e-8)
         nom.varcosts[g.name] = [addVarCost!(nom.m, nom.prod[g.name][ihr], blocks, relcosts) for ihr = 1:HRS]
     end
 end
-
-function addLoadBalance!(nom::UCNom, forecasts)
-    for ihr = 1:length(forecasts)
-        total_prod = sum([nom.prod[gname][ihr] for gname in keys(nom.gendata)])
-        @defVar(nom.m, shed >= 0)
-        @addConstraint(nom.m, total_prod - forecasts[ihr] <= shed)
-        @addConstraint(nom.m, total_prod - forecasts[ihr] >= -shed)
-
-        push!(nom.load_diffs, total_prod - forecasts[ihr] )
-        push!(nom.sheds, shed)
-    end
-end
-
 
 #creates the variable and adds teh ecomin/ecomax constraint
 function addProdVar!(m, x, min, max, TOL)
@@ -208,7 +174,7 @@ function addProdVar!(m, x, min, max, TOL)
     end
 end
 
-#could be smarter to take advantage of the fixed case
+#could be smarter to take advantage of the fixed production case
 function addVarCost!(m, prod, blocks, relcosts)
     numBlocks = length(blocks)
     #formulation exploits the fact that relcosts are non-decreasing
