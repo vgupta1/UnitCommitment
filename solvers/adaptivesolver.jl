@@ -33,16 +33,20 @@ solve_(aff::UCAff, report) = JuMPeR.solveRobust(aff.m, report=report)
 
 function addSecondStage!(aff::UCAff; TOL=1e-8)
     for g in values(aff.gendata)   	
-		#add the affine expressions for the production.  also ads ecomin-max constraints
-        aff.prod[g.name] = [addAdaptProdVar!(aff.m, aff.proj_fcn(ihr), aff.uncs, aff.ons[g.name][ihr], 
+    	prodsMaxProds = [addAdaptProdVar!(aff.m, aff.proj_fcn(ihr), aff.uncs, aff.ons[g.name][ihr], 
         						g.ecomin[ihr], g.ecomax[ihr], TOL) for ihr=1:HRS]
-		#populate maxprod
-		#VG: Revisit if this should be affine
-		@defVar(aff.m, maxprods[1:HRS])
-		for ihr = 1:HRS
-			addConstraint(aff.m, maxprods[ihr] >= aff.prod[g.name][ihr])
-		end
-		aff.maxprod[g.name] = maxprods[:]
+    	aff.prod[g.name], aff.maxprod[g.name] = zip(prodsMaxProds...)
+
+		# #add the affine expressions for the production.  also ads ecomin-max constraints
+  #       aff.prod[g.name] = [addAdaptProdVar!(aff.m, aff.proj_fcn(ihr), aff.uncs, aff.ons[g.name][ihr], 
+  #       						g.ecomin[ihr], g.ecomax[ihr], TOL) for ihr=1:HRS]
+		# #populate maxprod
+		# #VG: Revisit if this should be affine
+		# @defVar(aff.m, maxprods[1:HRS])
+		# for ihr = 1:HRS
+		# 	addConstraint(aff.m, maxprods[ihr] >= aff.prod[g.name][ihr])
+		# end
+		# aff.maxprod[g.name] = maxprods[:]
 
 		#This works because everything is disaggregated for now
         blocks, relcosts = getCurve(g)
@@ -54,17 +58,20 @@ end
 function addAdaptProdVar!(m, projMatrix, uncs, x, min, max, TOL)
 	if max - min < TOL
 		#A trivial case where adaptivity non-helpful
-		return max * x
+		return max * x, max * x
 	end
 	k = size(projMatrix, 1)
 	@defVar(m, prods[1:k])
-	@defVar(m, prods0)
+	@defVar(m, prods0 >= 0)
+	@defVar(m, maxprod >=0)
 	proj_uncs = projMatrix * uncs[:]
 #	proj_uncs = [sum([projMatrix[ix, jx] * uncs[jx] for jx = 1:HRS]) for ix=1:k]
 	p = sum([proj_uncs[ix] * prods[ix] for ix = 1:k]) + prods0 
-    addConstraint(m, p <= max * x)
+    
+    addConstraint(m, p <= maxprod)
+    @addConstraint(m, maxprod <= max * x)
 	addConstraint(m, p >= min * x)
-	return p
+	return p, maxprod
 end
 
 function addLoadBalance!(aff::UCAff, forecasts, split_fcn = nothing)
