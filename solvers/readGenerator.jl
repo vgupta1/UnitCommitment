@@ -241,7 +241,7 @@ function addOffers!(price_path, size_path, gens; log=false, scaling=1e-3)
 		        end
 	            continue
 	        end
-	        gens[sname].offerblocks[sblock] = Block(size * scaling, price * scaling)
+	        gens[sname].offerblocks[sblock] = Block(size * scaling, price)
 	    else
 	        #For now, toss things that aren't real generators
 	    end

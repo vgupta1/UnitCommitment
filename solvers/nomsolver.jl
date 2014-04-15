@@ -18,4 +18,4 @@ function addLoadBalance!(nom::UCNom, forecasts)
     end
 end
 
-solve_(nom::UCNom, report) = JuMPeR.solve(nom.m)
+solve_(nom::UCNom, report; args...) = JuMPeR.solve(nom.m)  #VG should probably extend somehow
