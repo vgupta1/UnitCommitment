@@ -121,7 +121,7 @@ function addFirstStage!(ucbase; TOL=1e-8)
 end
 
 #The whole shebang
-function solve(ucbase, forecasts; forceserve=false, report=true)
+function solve(ucbase, forecasts; forceserve=false, report=true, args...)
 	tic();
 	addFirstStage!(ucbase)
 	addSecondStage!(ucbase)
@@ -137,8 +137,7 @@ function solve(ucbase, forecasts; forceserve=false, report=true)
     end
     buildTime = toq();
 
-	#Load the model only for timing
-	tic(); status = solve_(ucbase, report); solveTime = toq();
+	tic(); status = solve_(ucbase, report; args...); solveTime = toq();
 
 	if report 
 		println("Build Time \t $buildTime")

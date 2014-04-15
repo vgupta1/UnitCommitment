@@ -43,4 +43,4 @@ function addLoadBalance!(rob::UCRob, forecasts)
 end
 
 ## addSecondStage! of the nominal model pertains here bc non-adaptive
-solve_(rob::UCRob, report) = JuMPeR.solveRobust(rob.m, report=report)
+solve_(rob::UCRob, report; args...) = JuMPeR.solveRobust(rob.m, report=report; args...)

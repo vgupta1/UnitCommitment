@@ -29,7 +29,7 @@ type UCAff
 end
 #VG Add a better convenience constructor
 
-solve_(aff::UCAff, report) = JuMPeR.solveRobust(aff.m, report=report)
+solve_(aff::UCAff, report; args...) = JuMPeR.solveRobust(aff.m, report=report; args...)
 
 function addSecondStage!(aff::UCAff; TOL=1e-8)
     for g in values(aff.gendata)   	
