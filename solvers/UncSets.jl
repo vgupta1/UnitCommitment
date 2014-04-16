@@ -29,6 +29,14 @@ function createBertSimU(m, resid_data, Gamma; Gamma_bound=2.0, force_pos=false)
 	return alphas, u
 end
 
+function eigenProjMatrix(Sigma, numEigs)
+	D, V = eig(Sigma);
+	projMatrix = V[:, (end-numEigs):end]'  #should thsi be scaled?
+	return (ihr->projMatrix)
+end
+eigenProjMatrixData(data, numEigs) = eigenProjMatrix(cov(data), numEigs)
+
+
 #create a simple polyhedral outter approximation to UCS
 # VG Refactor the bertsimas/sim norm function
 #data stored row-wise
