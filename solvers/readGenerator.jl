@@ -12,7 +12,7 @@ include("generators.jl")
 # Ignoring inihour - Using warm starts for everyone for now
 
 #"../Data/AndysGenInstance"
-function loadISO( dir )
+function loadISO( dir, filt_ratio=.3 )
 	##Elements of the "others" collection include INC Decs, and loads
 	## the file pResType indexes type of everything (not currently used)
 	gens, others = createGens("$dir/SetRes.txt");
@@ -30,8 +30,60 @@ function loadISO( dir )
 
 	addOffers!("$dir/pEnergyBidPrice.txt", "$dir/pEnergyBidSize.txt", gens)
 	addStartCosts!("$dir/pStartupCost.txt", gens)
-	return gens
+	
+	scaling = 1.
+	if filt_ratio !=nothing
+		scaling = filtGens!(gens, filt_ratio)
+	end
+	return gens, scaling
 end
+
+function filtGens!(gens, p)
+	println("Initial Num Gens:\t", length(gens))
+	hr13Cap = sum([getCap(g, 13) for g in values(gens)])
+    for g in values(gens)
+        if g.startcost < .1
+            g.startcost = 0.
+        end
+    end
+    #These generators seemingly have bad data...
+    delete!(gens, "VLCO-I_ASCUTNEY_26_22")
+    delete!(gens, "VLCO-I_N_RUTLND_44_22")
+
+    #drop the wind and hydro for now
+    for g in values(gens)
+        if g.fueltype == "Wind"
+            delete!(gens, g.name)
+        elseif g.fueltype=="Hydro"
+            delete!(gens, g.name)
+        end
+    end
+    
+    #halve the steam, CT and Diesel
+    srand(8675309)
+    for g in values(gens)
+        if g.fueltype =="Steam"
+            rand() > p && delete!(gens, g.name)
+        elseif g.fueltype =="CT"
+            rand() > p && delete!(gens, g.name)
+        elseif g.fueltype == "Diesel"
+            rand() > p && delete!(gens, g.name)
+        end
+    end
+    #Generators which cause needless numerical instability
+    for g in values(gens)
+        blocks, prices = getCurve(g)
+        if minimum(blocks) < 1e-3
+            println(g.name)
+            delete!(gens, g.name)
+        end
+    end
+	newhr13Cap = sum([getCap(g, 13) for g in values(gens)])
+	println("Final Num Gens:\t", length(gens))
+	println("Scaling:\t", newhr13Cap / hr13Cap)
+	return newhr13Cap / hr13Cap
+end
+
 
 #returns incBlocks, prices for the curve
 function getCurve( g::Generator )
