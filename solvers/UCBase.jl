@@ -89,6 +89,7 @@ function secondSolve(ucbase, loads; report=true)
 		println("Capacity \t $(getCap(ucbase))")
 		println("Second Stage\t $(getObjectiveValue(nom2.m) - getStartCost(ucbase))")
 		println("Tot Shed\t $(totShed(nom2))")
+        println("Objective\t $(getObjectiveValue(nom2.m))")
 	end
 	return nom2
 end
@@ -144,7 +145,7 @@ function solve(ucbase, forecasts; forceserve=false, report=true, args...)
 		println("Solve Time \t $solveTime")
 		println("Start Costs\t $(getStartCost(ucbase))")
 		println("Capacity \t $(getCap(ucbase))")
-		println("Second Stage\t $(getVarCost(ucbase))")
+		println("Second Stage\t $(getObjectiveValue(ucbase.m) - getStartCost(ucbase))")
 		println("Tot Shed \t $(totShed(ucbase))")
 		println("Objective\t $(getObjectiveValue(ucbase.m))")
 	end
