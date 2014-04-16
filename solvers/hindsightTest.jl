@@ -7,33 +7,34 @@ include("readGenerator.jl")
 include("readLoads.jl")
 include("nomsolver.jl")
 
-genstub = "../Data/AndysGenInstance"
-gens = loadISO(genstub)
+genstub  = "../Data/AndysGenInstance"
 loadstub = "../Data/ISO-NE\ Load\ Data"
 
-dts, vals = readLoads("$loadstub/PredTest.csv");
-dtstrue, valstrue = readLoads("$loadstub/LoadTest.csv")    
-assert(size(vals, 1) == size(valstrue, 1))
+gens, scaling       = loadISO(genstub, .1)
+dts, vals           = readLoads("$loadstub/PredTest.csv")
+dts_true, vals_true = readLoads("$loadstub/LoadTest.csv")
+vals               *= scaling
+vals_true          *= scaling
+resids              = map(float, vals_true - vals);
+
 fileout = open(ARGS[1], "w");
 numruns = length(ARGS) > 1 ?  int(ARGS[2]) : size(vals, 1)
 
 for iRun = 1:numruns
-	forecast = vals[iRun, :]; loads = valstrue[iRun, :]
-	m = RobustModel(solver=GurobiSolver(TimeLimit=5*60))
+	forecast = vals[iRun, :]; loads = vals_true[iRun, :]
+	m = RobustModel(solver=GurobiSolver())
 	nom = UCNom(m, gens, 5000)
 	status1 = solve(nom, forecast)
 	nom2 = secondSolve(nom, loads)
-	totShed = sum(map(getValue, nom2.sheds))
 
-	nomhind = UCNom(RobustModel(solver=GurobiSolver(TimeLimit=5*60)), gens, 5000)
+	nomhind = UCNom(RobustModel(solver=GurobiSolver()), gens, 5000)
 	status2 = solve(nomhind, loads)
-	totShed2 = sum(map(getValue, nomhind.sheds))
 
 	#outputSummary
 	if iRun == 1
 		writedlm(fileout, ["Date" "status" "Gap" "FixedCost" "VarCost" "Shed" "HindFixed" "HindVar" "HindShed"])
 	end
-	writedlm(fileout, [dts[iRun] status1 getgap(nom) getStartCost(nom) getVarCost(nom2) totShed getStartCost(nomhind) getVarCost(nomhind) totShed2])
+	writedlm(fileout, [dts[iRun] status1 getgap(nom) getStartCost(nom) getVarCost(nom2) totShed(nom2) getStartCost(nomhind) getVarCost(nomhind) totShed(nomhind)])
 end
 
 
