@@ -40,11 +40,13 @@ eigenProjMatrixData(data, numEigs) = eigenProjMatrix(cov(data), numEigs)
 #create a simple polyhedral outter approximation to UCS
 # VG Refactor the bertsimas/sim norm function
 #data stored row-wise
-function createPolyUCS(rm, resid_data, Gamma1, Gamma2, kappa, isOuter=true)
+createPolyUCS(rm, resid_data::Matrix{Float64}, Gamma1::Real, Gamma2::Real, kappa::Real, isOuter=true) =
+	createPolyUCS(rm, mean(resid_data, 1), cov(resid_data), Gamma1, Gamma2, kappa, isOuter)
+
+function createPolyUCS(rm, mu::Matrix{Float64}, Sigma::Matrix{Float64}, Gamma1::Real, Gamma2::Real, kappa::Real, isOuter)
 	! isOuter && error("Inner Approx Not Yet Implemented")
-	N, d = size(resid_data)
-	mu = mean(resid_data, 1)
-	Covbar = cov(resid_data) + Gamma2 * eye(d)
+	d = length(mu)
+	Covbar = Sigma + Gamma2 * eye(d)
 	C = chol(Covbar)::Array{Float64, 2}
 	@defUnc(rm, pp[1:d] >= 0)
 	@defUnc(rm, pm[1:d] >= 0)
