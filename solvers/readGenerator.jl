@@ -29,7 +29,7 @@ function loadISO( dir, filt_ratio=.3 )
 	fixCycles!(gens)  
 
 	addOffers!("$dir/pEnergyBidPrice.txt", "$dir/pEnergyBidSize.txt", gens)
-	addStartCosts!("$dir/pStartupCost.txt", gens)
+	addStartCosts!("$dir/pStartUpCost.txt", gens)
 	
 	scaling = 1.
 	if filt_ratio !=nothing
