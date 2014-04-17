@@ -47,7 +47,7 @@ end
 #Corresponds to delta/2 = 
 #               95%       90%       85%       80%       75% 
 g1_grid = sqrt(24) * linspace(.25, 3, 10) 
-g2_grid = [2., 2.5, 3.,]
+g2_grid = [2. 2.5 3.]
 
 ofile = open(ARGS[1], "a")
 for g1 in g1_grid
