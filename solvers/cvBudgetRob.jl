@@ -26,7 +26,7 @@ function testUCSRob(df, params, epsilon, Gamma1, Gamma2)
     avg = 0
     for i in df[1]
         rm = RobustModel(solver=GurobiSolver(MIPGap=5e-3, OutputFlag=0))
-        alphas, uncs = createBertSimU(m, mu, Sigma, Gamma1, Gamma2, false)
+        alphas, uncs = createBertSimU(rm, mu, Sigma, Gamma1, Gamma2, false)
         rob = UCRob(rm, gens, penalty, uncs)
         solve(rob, vals[i, :], usebox=false, report=false)
 
@@ -49,13 +49,13 @@ for eps in eps_grid
     for g1 in g1_grid
         g2 = g2_grid[1]  #VG Hacky
     	testUCSRob_(df, params) = testUCSRob(df, params, eps, g1, g2)
-    	try
+    	#try
     		dummy, results = kfold_crossvalidate(DataFrame(mydf), trainUCS, testUCSRob_, 5)
     		#write a value and flush it
     		writedlm(ofile, [eps g1 g2 mean(results) std(results)])
     		flush(ofile)
             println(eps, "  ", g1, "  ", g2)
-    	catch
-    	end
+    	#catch
+    	#end
     end
 end
