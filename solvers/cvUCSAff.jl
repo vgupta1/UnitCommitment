@@ -31,7 +31,7 @@ function testUCSAff(df, params, epsilon, Gamma1, Gamma2)
     aff_gap   = 0.
     for i in df[1]
     	#First solve a Robust Model for the warm start
-        rm = RobustModel(solver=GurobiSolver(MIPGap=5e-3, OutputFlag=0, TimeLimit=60*20))
+        rm = RobustModel(solver=GurobiSolver(MIPGap=5e-3, OutputFlag=0, TimeLimit=60*5))
         alphas, uncs = createPolyUCS(rm, mu, Sigma, Gamma1, Gamma2, kappa(epsilon), true)
         rob = UCRob(rm, gens, penalty, uncs)
         solve(rob, vals[i, :], usebox=false, report=false)
@@ -46,7 +46,7 @@ function testUCSAff(df, params, epsilon, Gamma1, Gamma2)
     	# rob_gap += getgap(rob)
 
     	#solve an affine model
-    	rm2 = RobustModel(solver=GurobiSolver(MIPGap=5e-3, OutputFlag=0, TimeLimit=60*20))
+    	rm2 = RobustModel(solver=GurobiSolver(MIPGap=5e-3, OutputFlag=0, TimeLimit=60*5))
 		alphas, uncs = createPolyUCS(rm2, mu, Sigma, Gamma1, Gamma2, kappa(epsilon), true)
 		aff = UCAff(rm2, gens, penalty, uncs);
 		aff.proj_fcn = proj_fcn
@@ -68,12 +68,6 @@ end
 eps_grid = linspace(1e-3, 1-1e-3, 10)
 g1_grid  = linspace(0, 1, 10)
 g2_grid  = linspace(0, 2, 10)
-
-##DEBUG
-eps_grid = [.1, .2]
-g1_grid  = [.5, ]
-g2_grid  = [.5, ]
-
 ofile = open(ARGS[1], "a")
 
 for (eps, g1, g2) in product(eps_grid, g1_grid, g2_grid)
@@ -90,6 +84,4 @@ for (eps, g1, g2) in product(eps_grid, g1_grid, g2_grid)
 	# catch
 	# end
 end
-
-##VG fix the grids.
 
