@@ -22,7 +22,8 @@ indx                = int(ARGS[1])
 ##################################
 #solve the robust problem for a warmstart
 m = RobustModel(solver=GurobiSolver())
-alphas, uncs = createPolyUCS(m, resids, Gamma1, Gamma2, kappa(eps))
+#alphas, uncs = createPolyUCS(m, resids, Gamma1, Gamma2, kappa(eps))
+alphas, uncs = createBertSimU(m, resids, 10, Gamma_bound=3)
 rob = UCRob(m, gens, penalty, uncs)
 
 println( @elapsed solve(rob, vals[indx, :], report=true) )

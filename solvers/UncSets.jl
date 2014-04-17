@@ -5,11 +5,14 @@ using JuMPeR, Gurobi
 
 #data stored row-wise
 function createBertSimU(m, resid_data, Gamma; Gamma_bound=2.0, force_pos=false)
-	N, d = size(resid_data)
 	mu = mean(resid_data, 1); sigma = std(resid_data, 1)
+	return createBertSimU(m, mu, sigma, Gamma, Gamma_bound, force_pos)
+end
 
+function createBertSimU(m, mu, sigma, Gamma, Gamma_bound, force_pos)
 	#compute bounding box.  Needed in other models.
 	#Computation assumes that 0 in interior(U), so check
+	d = length(mu)
 	bContainsZero = true 
 	for ix = 1:d
 		(mu[ix] / sigma[ix] > Gamma_bound) && (bContainsZero = false)

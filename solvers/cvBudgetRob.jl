@@ -21,12 +21,12 @@ penalty             = 5e3
 ########################
 mydf = DataFrame(1:size(resids, 1))
 trainUCS(df) = (mean(resids[df[1], :], 1), cov(resids[df[1], :]))
-function testUCSRob(df, params, epsilon, Gamma1, Gamma2)
+function testUCSRob(df, params, Gamma1, Gamma2)
     mu, Sigma = params
     avg = 0
     for i in df[1]
         rm = RobustModel(solver=GurobiSolver(MIPGap=5e-3, OutputFlag=0))
-        alphas, uncs = createBertSimU(m, mu, Sigma, Gamma1, Gamma2, false)
+        alphas, uncs = createBertSimU(rm, mu, Sigma, Gamma1, Gamma2, false)
         rob = UCRob(rm, gens, penalty, uncs)
         solve(rob, vals[i, :], usebox=false, report=false)
 
@@ -40,22 +40,21 @@ end
 #VG Revisit these....
 #Corresponds to delta/2 = 
 #               95%       90%       85%       80%       75% 
-g1_grid = sqrt(24) * linspace(.25, 3, 5) 
-g2_grid = [3,]
-eps_grid = [.05 .1 .15 .2 .25]
+g1_grid = sqrt(24) * linspace(.25, 3, 10) 
+g2_grid = [2., 2.5, 3.,]
 
 ofile = open(ARGS[1], "a")
-for eps in eps_grid
-    for g1 in g1_grid
-        g2 = g2_grid[1]  #VG Hacky
-    	testUCSRob_(df, params) = testUCSRob(df, params, eps, g1, g2)
+for g1 in g1_grid
+    for g2 in g2_grid
+    	testUCSRob_(df, params) = testUCSRob(df, params, g1, g2)
     	try
     		dummy, results = kfold_crossvalidate(DataFrame(mydf), trainUCS, testUCSRob_, 5)
     		#write a value and flush it
-    		writedlm(ofile, [eps g1 g2 mean(results) std(results)])
+    		writedlm(ofile, [g1 g2 mean(results) std(results)])
     		flush(ofile)
-            println(eps, "  ", g1, "  ", g2)
-    	catch
+            println(g1, "  ", g2)
+    	catch e
+            show(e)
     	end
     end
 end
