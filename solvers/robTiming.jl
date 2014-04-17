@@ -16,7 +16,7 @@ resids              = map(float, vals_true - vals);
 kappa(eps)          = sqrt(1/eps - 1)
 penalty             = 5e3
 Gamma1              = .5 * scaling
-Gamma2              = 4  * scaling
+Gamma2              = 4  * scaling * scaling
 eps                 = .1
 indx                = int(ARGS[1])
 ##################################
