@@ -35,6 +35,7 @@ for iRun = 1:numruns
 		writedlm(fileout, ["Date" "status" "Gap" "FixedCost" "VarCost" "Shed" "HindFixed" "HindVar" "HindShed"])
 	end
 	writedlm(fileout, [dts[iRun] status1 getgap(nom) getStartCost(nom) getVarCost(nom2) totShed(nom2) getStartCost(nomhind) getVarCost(nomhind) totShed(nomhind)])
+	flush(fileout)
 end
 
 
