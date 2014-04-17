@@ -23,7 +23,7 @@ function addFirstStage(m; HRS=24)
     @defVar(m, zs[1:HRS], Bin)  #starting
     @defVar(m, ys[1:HRS], Bin)  #stopping
     for ix = 1:HRS
-        @addConstraint(m, zs[ix] <= xs[ix])  #Start now -> On
+        @addConstraint(m, zs[ix] <= xs[ix])  #Start now -> On  #VG only add these if startcost = 0?
         @addConstraint(m, ys[ix] <= 1-xs[ix])  #Stop now -> Off
     end
     #assume everyone starts off

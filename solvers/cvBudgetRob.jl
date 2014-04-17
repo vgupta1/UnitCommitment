@@ -29,10 +29,16 @@ function testUCSRob(df, params, Gamma1, Gamma2)
         alphas, uncs = createBertSimU(rm, mu, Sigma, Gamma1, Gamma2, false)
         rob = UCRob(rm, gens, penalty, uncs)
         solve(rob, vals[i, :], usebox=false, report=false)
+        #resolve get real costs
+        rob2 = secondSolve(rob, vals_true[i, :], report=false);        
+        
+        #solve a nominal problem as a variance reduction
+        m = RobustModel(solver=GurobiSolver(MIPGap=5e-3, OutputFlag=0))
+        nom = UCNom(m, gens, penalty)
+        solve(nom, vals[i, :])
+        nom2 = secondSolve(nom, vals_true[i, :], report=false)
 
-        #now solve a second model to get real costs
-        nom2 = secondSolve(rob, vals_true[i, :], report=false);        
-        avg += getObjectiveValue(nom2.m)
+        avg += getObjectiveValue(rob2.m) - getObjectiveValue(nom2.m)
     end
     avg/size(df, 1)
 end    
