@@ -24,7 +24,7 @@ eps                 = .1
 m = RobustModel(solver=GurobiSolver())
 alphas, uncs = createPolyUCS(m, resids, Gamma1, Gamma2, kappa(eps))
 rob = UCRob(m, gens, penalty, uncs)
-solve(rob, vals[1, :], report=true)
+solve(rob, vals[int(ARGS[1]), :], report=true)
 
 w = WarmStartInfo()
 copyWarmStart(rob, w)
@@ -32,12 +32,12 @@ copyWarmStart(rob, w)
 ##################################
 ## a test function
 function testRun()
-	rm2 = RobustModel(solver=GurobiSolver(MIPGap=5e-3))  #MIPGap=1e-2, OptimalityTol=1e-4)
+	rm2 = RobustModel(solver=GurobiSolver(MIPGap=5e-3, Method=2))  #MIPGap=1e-2, OptimalityTol=1e-4)
 	alphas, uncs = createPolyUCS(rm2, resids, Gamma1, Gamma2, kappa(eps));
 	aff = UCAff(rm2, gens, penalty, uncs);
 	aff.proj_fcn = eigenProjMatrixData(resids, 1)
 	aff.warmstart = w
-	solve(aff, vals[1, :], report=true, usebox=false) #, lprelax=true
+	solve(aff, vals[int(ARGS[1]), :], report=true, usebox=false) #, lprelax=true
 end
 
 println( @elapsed testRun() )

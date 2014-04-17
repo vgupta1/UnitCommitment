@@ -21,7 +21,7 @@ function loadISO( dir, filt_ratio=.3 )
 	addVal!("$dir/pMaxStart.txt", gens, :maxstart, 
 	        test_condition=x->1 <= x <= HRS)
 	addVal!("$dir/pIniHour.txt", gens, :initonline)
-	addVal!("$dir/pMinUptime.txt", gens, :minup, 
+	addVal!("$dir/pMinUpTime.txt", gens, :minup, 
 	        test_condition=x->0 <= x <= HRS)
 	addVal!("$dir/pMinDnTime.txt", gens, :mindown, 
 	        test_condition=x->0 <= x <= HRS)

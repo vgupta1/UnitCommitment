@@ -43,7 +43,6 @@ function testUCSAff(df, params, epsilon, Gamma1, Gamma2)
     	#solve it for real cost
     	nom2     = secondSolve(rob, vals_true[i, :], report=false)
     	rob_avg += getObjectiveValue(nom2.m)
-    	# rob_gap += getgap(rob)
 
     	#solve an affine model
     	rm2 = RobustModel(solver=GurobiSolver(MIPGap=5e-3, OutputFlag=0, TimeLimit=60*5))
@@ -56,23 +55,25 @@ function testUCSAff(df, params, epsilon, Gamma1, Gamma2)
 		#solve once more for the real cost
 		nom2     = secondSolve(aff, vals_true[i, :], report=false)
 		aff_avg += getObjectiveValue(nom2.m)
-    	# aff_gap += getgap(aff)
     end
 
     #return the average cost of the rob and the avg cost of the aff
     n = size(df, 1)
-    rob_avg/n, aff_avg/n #, rob_gap/n, aff_gap/n
+    rob_avg/n, aff_avg/n
 end    
 ##########################
 #VG Revisit these....
-eps_grid = linspace(1e-3, 1-1e-3, 10)
-g1_grid  = linspace(0, 1, 10)
-g2_grid  = linspace(0, 2, 10)
-ofile = open(ARGS[1], "a")
+eps_grid = [.1, .25, .5]
 
+#Corresponds to delta/2 = 
+#               95%       90%       85%       80%       75% 
+g1_grid = scaling * [0.5993808 0.5171897 0.4588753 0.4105277 0.3695186] 
+g2_grid = scaling * scaling * [4.974080  4.190187  3.713862  3.349935  3.035816]
+
+ofile = open(ARGS[1], "a")
 for (eps, g1, g2) in product(eps_grid, g1_grid, g2_grid)
 	testUCSAff_(df, params) = testUCSAff(df, params, eps, g1, g2)
-	# try
+	try
 		dummy, results = kfold_crossvalidate(DataFrame(mydf), trainUCS, testUCSAff_, 5)
 		#write a value and flush it
 		rob_res, aff_res = zip(results...)
@@ -81,7 +82,6 @@ for (eps, g1, g2) in product(eps_grid, g1_grid, g2_grid)
 		writedlm(ofile, [eps g1 g2 mean(rob_res) std(rob_res) mean(aff_res) std(aff_res)])
 		flush(ofile)
 		println(eps, g1, g2)
-	# catch
-	# end
+	catch
+	end
 end
-
