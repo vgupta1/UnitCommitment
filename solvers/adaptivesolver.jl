@@ -157,9 +157,15 @@ function addAdaptProdVar!(m, projMatrix, uncs, x, min, max, TOL)
 	proj_uncs = projMatrix * uncs[:]
 	p = sum([proj_uncs[ix] * prods[ix] for ix = 1:k]) + prods0 
     
-    addConstraint(m, p <= maxprod)
+    addConstraint(m, p - maxprod <= 0)
+
     @addConstraint(m, maxprod <= max * x)
-	addConstraint(m, p >= min * x)
+	addConstraint(m, p - min * x >= 0)
+
+    #VG CLUDGE add these for safety in cutting plane
+    @addConstraint(m, prods0 <= maxprod)
+    @addConstraint(m, prods0 >= min * x)
+
 	return prods, prods0, p, maxprod
 end
 
@@ -169,9 +175,19 @@ function addLoadBalance!(aff::UCAff, forecasts, split_fcn = nothing)
     for ihr = 1:length(forecasts)
         total_prod = sum([aff.prod[gname][ihr] for gname in keys(aff.gendata)])
         @defVar(aff.m, shed >= 0)
-        addConstraint(aff.m, total_prod - forecasts[ihr] - uncs[ihr]  <= shed)
-        addConstraint(aff.m, total_prod - forecasts[ihr] - uncs[ihr] >= -shed)
+        addConstraint(aff.m, total_prod - shed - uncs[ihr]  <= forecasts[ihr])
+        addConstraint(aff.m, total_prod + shed - uncs[ihr]  >= forecasts[ihr])
         push!(aff.sheds, shed)
+
+        #VG cludges are a real thing
+        total_prod0 = AffExpr()
+        for gname in keys(aff.gendata)
+        	if aff.prodint[gname][ihr] != nothing
+        		total_prod0 += aff.prodint[gname][ihr]
+        	end
+        end
+        @addConstraint(aff.m, total_prod0 - shed  <= forecasts[ihr])
+        @addConstraint(aff.m, total_prod0 + shed  >= forecasts[ihr])
     end
     addWarmStart!(aff)  ##VG This should live somewhere else...
 end

@@ -32,24 +32,14 @@ copyWarmStart(rob, w)
 ##################################
 ## a test function
 function testRun()
-	rm2 = RobustModel(solver=GurobiSolver(MIPGap=5e-3, Method=2))  #MIPGap=1e-2, OptimalityTol=1e-4)
+	rm2 = RobustModel(solver=GurobiSolver(MIPGap=5e-3), cutsolver=GurobiSolver(OutputFlag=0))  #MIPGap=1e-2, OptimalityTol=1e-4)
 	alphas, uncs = createPolyUCS(rm2, resids, Gamma1, Gamma2, kappa(eps));
 	aff = UCAff(rm2, gens, penalty, uncs);
 	aff.proj_fcn = eigenProjMatrixData(resids, 1)
 	aff.warmstart = w
-	solve(aff, vals[int(ARGS[1]), :], report=true, usebox=false) #, lprelax=true
+	solve(aff, vals[int(ARGS[1]), :], report=true, usebox=false, 
+				prefer_cuts= (ARGS[2]=="true") ) #, lprelax=true
 end
 
+println( "\n Robust Solve Begins Here \n ")
 println( @elapsed testRun() )
-
-# .3 small, eigs = 1, pen = 1
-#  LP: 1451.48  total:1497
-
-# .3 small, eigs = 1, pen = 5e3
-#  LP: 686.71  total:???
-#650272.2295467586
-#127.50386707066602
-
-#solving the mip versin of above:
-# Root Relaxation: 6.5049432e+05  (Seems to be some noise)
-
