@@ -2,12 +2,47 @@
 # Convenience Fcns for creating Polyhedral Sets
 ####
 using JuMPeR, Gurobi
+using Distributions
 
-#data stored row-wise
-function createBertSimU(m, resid_data, Gamma; Gamma_bound=2.0, force_pos=false)
-	mu = mean(resid_data, 1); sigma = std(resid_data, 1)
-	return createBertSimU(m, mu, sigma, Gamma, Gamma_bound, force_pos)
+function createUM(m, lbounds, ubounds)
+	d = length(lbounds)
+	@defUnc(m, u[1:d])
+	for i = 1:d
+		addConstraint(m, lbounds[i] <= u[i])
+		addConstraint(m, ubounds[i] >= u[i])
+	end
+	return u
 end
+
+function calcUMBounds(data, epsilon, delta)
+	#compute s
+	N, d     = size(data_s)
+	eps_d = epsilon / d
+	if (1-eps_d)^N > delta / 2d
+		warn("Desired epsilon $epsilon, delta $delta  exceed bounds")
+		s = N
+	else
+		binom_dist = Binomial(N, 1 - eps_d )
+		s = quantile(binom_dist, 1-delta /2d )
+	end
+	return calcUMBounds(data, s)
+end
+function calcUMBounds(data, s::Int)
+	(N - s + 1 >= s) && error("Condition on s not met, $s, $N")
+
+	#First sort each column
+	data_s = copy(data)
+	for jx = 1:size(data_s, 2)
+		data_s[:, jx] = sort!(data_s[:, jx])  #Julia doesn't allow sort in place
+	end
+	lbounds = transpose(data_s[N-s+1, :])
+	ubounds = transpose(data_s[s, :])
+	return lbounds, ubounds
+end
+
+createUM(m, data, epsilon, delta) = createUM(m, calcUMBounds(data, epsilon, delta)...)
+
+##############################
 
 function createBertSimU(m, mu, sigma, Gamma, Gamma_bound, force_pos)
 	#compute bounding box.  Needed in other models.
@@ -32,6 +67,12 @@ function createBertSimU(m, mu, sigma, Gamma, Gamma_bound, force_pos)
 	return alphas, u
 end
 
+#data stored row-wise
+createBertSimU(m, resid_data, Gamma; Gamma_bound=2.0, force_pos=false) =
+	createBertSimU(m, mean(resid_data, 1), std(resid_data, 1), Gamma, Gamma_bound, force_pos)
+
+##############################
+
 function eigenProjMatrix(Sigma, numEigs)
 	D, V = eig(Sigma);
 	projMatrix = V[:, (end-numEigs):end]'  #should thsi be scaled?
@@ -39,6 +80,7 @@ function eigenProjMatrix(Sigma, numEigs)
 end
 eigenProjMatrixData(data, numEigs) = eigenProjMatrix(cov(data), numEigs)
 
+##############################
 
 #create a simple polyhedral outter approximation to UCS
 # VG Refactor the bertsimas/sim norm function
@@ -79,3 +121,5 @@ function createPolyUCS(rm, mu::Matrix{Float64}, Sigma::Matrix{Float64}, Gamma1::
 	end
 	return alphas, us
 end
+
+##############################
