@@ -4,15 +4,20 @@
 using JuMPeR, Gurobi
 using Distributions
 
-function createUM(m, lbounds, ubounds)
-	d = length(lbounds)
-	@defUnc(m, u[1:d])
-	for i = 1:d
-		addConstraint(m, lbounds[i] <= u[i])
-		addConstraint(m, ubounds[i] >= u[i])
+
+function calcUMBounds(data, s::Int)
+	(N - s + 1 >= s) && error("Condition on s not met, $s, $N")
+
+	#First sort each column
+	data_s = copy(data)
+	for jx = 1:size(data_s, 2)
+		data_s[:, jx] = sort!(data_s[:, jx])  #Julia doesn't allow sort in place
 	end
-	return u
+	lbounds = transpose(data_s[N-s+1, :])
+	ubounds = transpose(data_s[s, :])
+	return lbounds, ubounds
 end
+calcUMBounds(data, r::Float64) = calcUMBounds(data, int(r * size(data, 1)))
 
 function calcUMBounds(data, epsilon, delta)
 	#compute s
@@ -27,19 +32,16 @@ function calcUMBounds(data, epsilon, delta)
 	end
 	return calcUMBounds(data, s)
 end
-function calcUMBounds(data, s::Int)
-	(N - s + 1 >= s) && error("Condition on s not met, $s, $N")
 
-	#First sort each column
-	data_s = copy(data)
-	for jx = 1:size(data_s, 2)
-		data_s[:, jx] = sort!(data_s[:, jx])  #Julia doesn't allow sort in place
+function createUM(m, lbounds, ubounds)
+	d = length(lbounds)
+	@defUnc(m, u[1:d])
+	for i = 1:d
+		addConstraint(m, lbounds[i] <= u[i])
+		addConstraint(m, ubounds[i] >= u[i])
 	end
-	lbounds = transpose(data_s[N-s+1, :])
-	ubounds = transpose(data_s[s, :])
-	return lbounds, ubounds
+	return u
 end
-
 createUM(m, data, epsilon, delta) = createUM(m, calcUMBounds(data, epsilon, delta)...)
 
 ##############################
@@ -75,7 +77,7 @@ createBertSimU(m, resid_data, Gamma; Gamma_bound=2.0, force_pos=false) =
 
 function eigenProjMatrix(Sigma, numEigs)
 	D, V = eig(Sigma);
-	projMatrix = V[:, (end-numEigs):end]'  #should thsi be scaled?
+	projMatrix = V[:, (end-numEigs + 1):end]'  #should thsi be scaled?
 	return (ihr->projMatrix)
 end
 eigenProjMatrixData(data, numEigs) = eigenProjMatrix(cov(data), numEigs)
@@ -93,6 +95,7 @@ function createPolyUCS(rm, mu::Matrix{Float64}, Sigma::Matrix{Float64}, Gamma1::
 	d = length(mu)
 	Covbar = Sigma + Gamma2 * eye(d)
 	C = chol(Covbar)::Array{Float64, 2}
+	@defUnc(rm, us[1:d])
 	@defUnc(rm, pp[1:d] >= 0)
 	@defUnc(rm, pm[1:d] >= 0)
 	@defUnc(rm, qp[1:d] >= 0)
@@ -106,7 +109,6 @@ function createPolyUCS(rm, mu::Matrix{Float64}, Sigma::Matrix{Float64}, Gamma1::
 	end		
 	addConstraint(rm, sum(w1[:])/sqrt(d) + theta[1] == Gamma1)
 	addConstraint(rm, sum(w2[:])/sqrt(d) + theta[2] == kappa)
-	@defUnc(rm, us[1:d])
 	for ix = 1:d
 		cq_ix = sum([C[ix, j] * (qp[j] - qm[j]) for j = 1:d])
 		addConstraint(rm, us[ix] == mu[ix] + pp[ix] - pm[ix] + cq_ix)

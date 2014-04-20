@@ -24,7 +24,7 @@ function testM(df, params)
         rm = RobustModel(solver=GurobiSolver(OutputFlag=0))
         uncs = createUM(rm, params...)
         rob = UCRob(rm, gens, penalty, uncs)
-        solve(rob, vals[i, :], usebox=false, report=false)
+        solve(rob, vals[i, :], usebox=false, report=false, prefer_cuts=true)
 
         #resolve to get real costs
         rob2 = secondSolve(rob, vals_true[i, :], report=false)        
@@ -41,22 +41,19 @@ function testM(df, params)
 end    
 ##########################
 ofile = open(ARGS[1], "a")
-###debug
-resids = resids[1:50, :]
-
 
 mydf  = DataFrame(1:size(resids, 1))
 N, d = size(resids)
 s_grid = [int(N * p) for p in linspace(.7, 1, 10)]
 
-for s in s_grid
-	trainUM(df) = calcUMBounds(resids[df[1], :], s)
+for r in linspace(.7, 1., 10)
+	trainUM(df) = calcUMBounds(resids[df[1], :], r)
 	try
 		dummy, results = kfold_crossvalidate(mydf, trainUM, testM, 5)
 		#write a value and flush it
-		writedlm(ofile, [s  mean(results) std(results)])
+		writedlm(ofile, [r  mean(results) std(results)])
 		flush(ofile)
-        println(s, "  ", mean(results))
+        println(r, "  ", mean(results))
 	catch e
         show(e)
 	end
