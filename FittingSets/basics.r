@@ -48,10 +48,19 @@ ggplot(aes(x=DRY.BULB, y=LOAD * 1e-3),
   theme(legend.title=element_blank(), 
         legend.position=c(.2, .8))
 
+#daily profiles
+ggplot(aes(x=HOUR, y=LOAD * 1e-3, group=Date, color=Date), 
+       data=subset(dat.Loads, Date >= as.Date("2009-07-01") & Date <= as.Date("2009-07-28"))
+       ) +
+  geom_point() + geom_line() + 
+  ylab("(GWh)") + xlab("Hour") +
+  theme_bw(base_size=18)
+
 library(reshape)
 hourlyLoads = cast(dat.Loads, Date~HOUR, value="LOAD")
 hourlyDry = cast(dat.Loads, Date~HOUR, value="DRY.BULB")
 hourlyDew = cast(dat.Loads, Date~HOUR, value="DEW.POINT")
+
 
 #name the rows for ease
 rownames(hourlyLoads) = hourlyLoads$Date
