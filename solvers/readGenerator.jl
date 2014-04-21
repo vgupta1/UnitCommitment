@@ -12,7 +12,7 @@ include("generators.jl")
 # Ignoring inihour - Using warm starts for everyone for now
 
 #"../Data/AndysGenInstance"
-function loadISO( dir, filt_ratio=.3 )
+function loadISO( dir, filt_ratio=.3, report=false )
 	##Elements of the "others" collection include INC Decs, and loads
 	## the file pResType indexes type of everything (not currently used)
 	gens, others = createGens("$dir/SetRes.txt");
@@ -34,6 +34,18 @@ function loadISO( dir, filt_ratio=.3 )
 	scaling = 1.
 	if filt_ratio !=nothing
 		scaling = filtGens!(gens, filt_ratio)
+	end
+
+	if report
+		for fueltype in FUEL_TYPES
+			gens_by_fuel = filter( g->g.fueltype==fueltype, values(gens))
+			numFuel = 0; cap = 0.
+			for g in gens_by_fuel
+				numFuel += 1
+				cap = getCap(g, 13)
+			end
+			println("$fueltype \t $numFuel \t $cap")
+		end
 	end
 	return gens, scaling
 end
