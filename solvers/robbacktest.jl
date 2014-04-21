@@ -19,7 +19,7 @@ penalty             = 5e3
 box_ratio           = .933
 file_out             = fileout = open(ARGS[1], "w")
 
-for iRun = 1:3
+for iRun = 1:length(dts)
     rm = RobustModel(solver=GurobiSolver(OutputFlag=0, MIPGap=1e-3, TimeLimit=60*10))
     uncs = createUM(rm, resids, box_ratio)
 
