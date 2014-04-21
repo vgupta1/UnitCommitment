@@ -1,3 +1,8 @@
+####
+#  VG This is deprecated
+####
+
+
 include("readGenerator.jl")
 include("readLoads.jl")
 include("nomsolver.jl")

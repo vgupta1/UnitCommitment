@@ -4,6 +4,7 @@
 
 setwd("/Users/VGupta/Documents/Research/UnitCommittment/UnitCommitment/Data/ISO-NE Load Data")
 dat = read.csv("LoadTest.csv")
+dts = as.Date(dat[, 2])
 dat = dat[, 3:26]
 dat = 1e-3 * dat
 
@@ -42,6 +43,7 @@ fit4$means = aggregate(dat,by=list(fit4$cluster),FUN=mean)
 library(cluster) 
 clusplot(dat, fit4$cluster, color=TRUE, shade=TRUE, 
          labels=1, lines=0, col.txt="black",
-         main="Loads")
+         main="", 
+         sub="", xlab="", ylab="")
 
 

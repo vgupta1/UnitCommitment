@@ -17,7 +17,7 @@ vals               *= scaling
 vals_true          *= scaling
 resids              = map(float, vals_true - vals);
 
-fileout = open(ARGS[1], "w");
+fileout = open(ARGS[1], "w")
 numruns = length(ARGS) > 1 ?  int(ARGS[2]) : size(vals, 1)
 
 for iRun = 1:numruns
