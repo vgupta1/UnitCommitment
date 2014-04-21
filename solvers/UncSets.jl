@@ -6,6 +6,7 @@ using Distributions
 
 
 function calcUMBounds(data, s::Int)
+	N = size(data, 1)
 	(N - s + 1 >= s) && error("Condition on s not met, $s, $N")
 
 	#First sort each column
@@ -43,6 +44,7 @@ function createUM(m, lbounds, ubounds)
 	return u
 end
 createUM(m, data, epsilon, delta) = createUM(m, calcUMBounds(data, epsilon, delta)...)
+createUM(m, data, r::Float64) = createUM(m, calcUMBounds(data, r)...)
 
 ##############################
 
@@ -110,7 +112,7 @@ function createPolyUCS(rm, mu::Matrix{Float64}, Sigma::Matrix{Float64}, Gamma1::
 	addConstraint(rm, sum(w1[:])/sqrt(d) + theta[1] == Gamma1)
 	addConstraint(rm, sum(w2[:])/sqrt(d) + theta[2] == kappa)
 	for ix = 1:d
-		cq_ix = sum([C[ix, j] * (qp[j] - qm[j]) for j = 1:d])
+		cq_ix = sum([C[j, ix] * (qp[j] - qm[j]) for j = 1:d])
 		addConstraint(rm, us[ix] == mu[ix] + pp[ix] - pm[ix] + cq_ix)
 	end
 	#next compute the bounding box
