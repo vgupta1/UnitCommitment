@@ -21,23 +21,23 @@ Gamma2              = 4  * scaling * scaling
 eps                 = .1
 ##################################
 #solve the robust problem for a warmstart
-# m = RobustModel(solver=GurobiSolver())
-# alphas, uncs = createPolyUCS(m, resids, Gamma1, Gamma2, kappa(eps))
-# rob = UCRob(m, gens, penalty, uncs)
-# solve(rob, vals[int(ARGS[1]), :], report=true)
+m = RobustModel(solver=GurobiSolver(OutputFlag=0))
+alphas, uncs = createPolyUCS(m, resids, Gamma1, Gamma2, kappa(eps))
+rob = UCRob(m, gens, penalty, uncs)
+solve(rob, vals[int(ARGS[1]), :], report=true)
 
-# w = WarmStartInfo()
-# copyWarmStart(rob, w)
+w = WarmStartInfo()
+copyWarmStart(rob, w)
 
 ##################################
 ## a test function
 #INDXSET = [72 88 107 160]
 function testRun()
-	rm2 = RobustModel(solver=GurobiSolver(MIPGap=1e-3, OutputFlag=1), cutsolver=GurobiSolver(OutputFlag=0))  #MIPGap=5e-3
+	rm2 = RobustModel(solver=GurobiSolver(MIPGap=1e-3, OutputFlag=1, Method=0), cutsolver=GurobiSolver(OutputFlag=0))  #MIPGap=5e-3
 	alphas, uncs = createPolyUCS(rm2, resids, Gamma1, Gamma2, kappa(eps));
 	aff = UCAff(rm2, gens, penalty, uncs);
 	aff.proj_fcn = eigenProjMatrixData(resids, 1)
-	# aff.warmstart = w
+	aff.warmstart = w
 
 	# read in the starting cuts
 	if length(ARGS) >= 3

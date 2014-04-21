@@ -10,7 +10,7 @@ include("robustsolver.jl")
 include("UncSets.jl")
 include("adaptivesolver.jl")
 
-gens, scaling       = loadISO("../Data/AndysGenInstance", .1)
+gens, scaling       = loadISO("../Data/AndysGenInstance", 1)
 dts, vals           = readLoads("../Data/ISO-NE Load Data/PredTest.csv")
 dts_true, vals_true = readLoads("../Data/ISO-NE Load Data/LoadTest.csv")
 vals               *= scaling
@@ -18,7 +18,7 @@ vals_true          *= scaling
 resids              = map(float, vals_true - vals)
 kappa(eps)          = sqrt(1/eps - 1)
 penalty             = 5e3
-numEigs             = int(ARGS[2])
+numEigs             = 2
 
 ########################
 mydf = DataFrame(1:size(resids, 1))
