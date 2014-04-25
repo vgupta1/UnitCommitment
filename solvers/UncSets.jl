@@ -86,6 +86,18 @@ eigenProjMatrixData(data, numEigs) = eigenProjMatrix(cov(data), numEigs)
 
 ##############################
 
+function identProjMatrixData(resids, numEigs)
+	stds = std(resids, 1)
+	perm = sortperm(vec(stds))
+	diagelem = zeros(size(resids, 2))
+	diagelem[ perm[(end-numEigs+1):end] ] = 1
+	return(ihr->diagm(diagelem))
+end
+
+
+
+###############################
+
 #create a simple polyhedral outter approximation to UCS
 # VG Refactor the bertsimas/sim norm function
 #data stored row-wise
