@@ -39,20 +39,21 @@ dts_true  = dts_true[INDXSET]
 
 tic()
 for (eps, g1, g2) in product(eps_grid, g1_grid, g2_grid)
-	#Solve one robust model that will be used to warmstart everyone
-	m = RobustModel(solver=GurobiSolver(OutputFlag=0))
-	alphas, uncs = createPolyUCS(m, resids, g1, g2, kappa(eps))
-	rob = UCRob(m, gens, penalty, uncs)
-	solve(rob, vals[1, :], report=false)
-	w = WarmStartInfo()
-	copyWarmStart(rob, w)
-
 	#now iterate over everyone
 	costs = Float64[]
 	for ix = 1:size(resids, 1)
+		#Solve one robust model that will be used to warmstart everyone
+		m = RobustModel(solver=GurobiSolver(OutputFlag=0))
+		alphas, uncs = createPolyUCS(m, resids, g1, g2, kappa(eps))
+		rob = UCRob(m, gens, penalty, uncs)
+		solve(rob, vals[1, :], report=false)
+		w = WarmStartInfo()
+		copyWarmStart(rob, w)
+
+
 		#train and solve an affine model
 		train_indx = [1:ix-1, ix+1:size(resids,1)]
-		rm2 = RobustModel(solver=GurobiSolver(MIPGap=1e-3, OutputFlag=0, Method=0, TimeLimit=60*15), 
+		rm2 = RobustModel(solver=GurobiSolver(MIPGap=1e-3, OutputFlag=0, Method=-1, TimeLimit=60*15), 
 						 cutsolver=GurobiSolver(OutputFlag=0))
 		alphas, uncs = createPolyUCS(rm2, resids[train_indx, :], g1, g2, kappa(eps), true)
 		aff = UCAff(rm2, gens, penalty, uncs)
@@ -82,5 +83,7 @@ for (eps, g1, g2) in product(eps_grid, g1_grid, g2_grid)
 	#tally up what you've got and write to file
 	writedlm(ofile, [eps g1 g2 mean(costs) std(costs) length(costs) ])
 	flush(ofile)
-	println(eps, "  ", g1, "  ", g2, "  ", toq())
+	println(eps, "  ", g1, "  ", g2)
+	toc()
+	tic()
 end
