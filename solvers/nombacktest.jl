@@ -1,57 +1,37 @@
-####
-#  VG This is deprecated
-####
-
-
+###
+# Back Test for the Nominal Approach
+###
+using DataFrames, Resampling, Iterators
 include("readGenerator.jl")
 include("readLoads.jl")
 include("nomsolver.jl")
+include("robustsolver.jl")
+include("UncSets.jl")
 
-genstub = "../Data/AndysGenInstance"
-gens = loadISO(genstub)
-loadstub = "../Data/ISO-NE\ Load\ Data"
+gens, scaling       = loadISO("../Data/AndysGenInstance", 1-1e-8)
+dts, vals           = readLoads("../Data/ISO-NE Load Data/PredValidate.csv")
+dts_true, vals_true = readLoads("../Data/ISO-NE Load Data/LoadValidate.csv")
+vals               *= scaling
+vals_true          *= scaling
+resids              = map(float, vals_true - vals);
+penalty             = 5e3
+box_ratio           = .933
+file_out             = fileout = open(ARGS[1], "w")
 
-dts, vals = readLoads("$loadstub/PredTest.csv");
-dtstrue, valstrue = readLoads("$loadstub/LoadTest.csv")    
-assert(size(vals, 1) == size(valstrue, 1))
-filesummary = open(ARGS[1], "w"); filehrs = open(ARGS[2], "w")
-numruns = length(ARGS) > 2 ?  int(ARGS[3]) : size(vals, 1)
+for iRun = 1:length(dts)
+    #solve a nominal problem as a variance reduction
+    m = RobustModel(solver=GurobiSolver(OutputFlag=0))
+    nom = UCNom(m, gens, penalty)
+    tic()
+    status = solve(nom, vals[iRun, :])
+    solvetime = toq()
+    nom2 = secondSolve(nom, vals_true[iRun, :], report=false)
 
-for iRun = 1:numruns
-	forecast = vals[iRun, :]; loads = valstrue[iRun, :]
-	m = RobustModel(solver=GurobiSolver(TimeLimit=1*60))
-	nom = UCNom(m, gens, 5000)
-	status1 = solve(nom, forecast)
-
-	capbyhr = Float64[]
-	for ihr = 1:24
-		cap = 0.
-		for g in values(nom.gendata)
-			if getValue(nom.starts[g.name][ihr]) > .5
-				cap += getCap(g, ihr)
-			end
-		end
-		push!(capbyhr, cap)
-	end
-	predvarcost = getVarCost(nom)
-
-	nom2 = secondSolve(nom, loads)
-	totShed = sum(map(getValue, nom2.sheds))
-
-	#outputSummary
 	if iRun == 1
-		writedlm(filesummary, ["Date" "status" "Gap" "FixedCost" "Capacity" "PredVarCost" "VarCost" "Shed"])
+		writedlm(file_out, ["Date" "status" "Time" "FixedCost" "PredVarCost" "VarCost" "PredShed" "Shed"])
+        println(file_out,  ["Date" "status" "Time" "FixedCost" "PredVarCost" "VarCost" "PredShed" "Shed"])
 	end
-
-	writedlm(filesummary, [dts[iRun] status1 getgap(nom) getStartCost(nom) sum(capbyhr) predvarcost getVarCost(nom2) totShed])
-
-	#dt  DispatchedCapacityByHr   PredVarCostByHr   ShedsByHr 
-	if iRun ==1 
-		writedlm(filehrs, hcat(dts[iRun], 
-						  ["Cap$ihr" for ihr = 1:HRS]', 
-						  ["PredVar$ihr" for ihr = 1:HRS]', 
-						  ["Shed$ihr" for ihr = 1:HRS]' ) )
-	end
-	writedlm(filehrs, [dts[iRun] capbyhr' [getVarCost(nom, ihr) for ihr = 1:HRS]' map(getValue, nom.sheds)'])
+	writedlm(file_out, [dts[iRun] status solvetime getStartCost(nom) getVarCost(nom) getVarCost(nom2) totShed(nom) totShed(nom2)])
+    println( file_out, [dts[iRun] status solvetime getStartCost(nom) getVarCost(nom) getVarCost(nom2) totShed(nom) totShed(nom2)])
 end
 
