@@ -83,4 +83,5 @@ for (eps, g1, g2) in product(eps_grid, g1_grid, g2_grid)
 	writedlm(ofile, [eps g1 g2 mean(costs) std(costs) length(costs) ])
 	flush(ofile)
 	println(eps, "  ", g1, "  ", g2, "  ", toq())
+	tic()
 end
