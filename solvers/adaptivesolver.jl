@@ -19,7 +19,7 @@ type WarmStartInfo
 						  Dict{String, Vector{Float64}}(), Dict{String, Vector{Float64}}(), Float64[])
 end
 
-function copyWarmStart(ucbase, w)
+function copyWarmStart(ucbase, w; TOL=1e-4)
 	for gn in keys(ucbase.gendata)
 		w.ons[gn]      = Int[] 
 		w.starts[gn]   = Int[] 
@@ -33,7 +33,8 @@ function copyWarmStart(ucbase, w)
 		append!(w.varcosts[gn], map(getValue, ucbase.varcosts[gn])[:])
 	end
 	append!(w.sheds, map(getValue, ucbase.sheds))
-	w.sheds += 1e-4  #to deal with numeical stability stuff
+	w.sheds += TOL  #to deal with numeical stability stuff
+	return w
 end
 
 type UCAff
@@ -75,16 +76,17 @@ isBaseLoad(g) = g.fueltype == "Nuclear"
 addSampleUncs!(aff::UCAff, samples) = aff.sample_uncs = copy(samples)
 
 function addWarmStart!(aff::UCAff; force=false)
-	if force
-		return forceWarmStart!(aff)
-	end
 	w = aff.warmstart
 	if w == nothing
 		return
 	end
+	if force
+		return forceWarmStart!(aff)
+	end
+
 	for gn in keys(aff.gendata)
 		for ihr = 1:HRS
-			# ons, starts and stops
+			# # ons, starts and stops
 			setValue(aff.ons[gn][ihr],    w.ons[gn][ihr])
 			setValue(aff.starts[gn][ihr], w.starts[gn][ihr])
 			setValue(aff.stops[gn][ihr],  w.stops[gn][ihr])
@@ -117,7 +119,7 @@ function forceWarmStart!(aff::UCAff)
 			@addConstraint(aff.m, aff.stops[gn][ihr]  == int(w.stops[gn][ihr]))
 			@addConstraint(aff.m, aff.varcosts[gn][ihr] == w.varcosts[gn][ihr])
 
-			# prods and varcosts
+			# prods
 			for ix = 1:length(aff.prodcoeff[gn][ihr])
 				@addConstraint(aff.m, aff.prodcoeff[gn][ihr][ix] == 0.0 )
 			end

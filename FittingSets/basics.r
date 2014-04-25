@@ -4,6 +4,8 @@
 # Basic plots for the paper
 
 #read in the whole csv
+setwd("/Users/VGupta/Documents/Research/UnitCommittment/UnitCommitment/Data/ISO-NE Load Data/")
+
 dat.Loads = read.csv("HourlyLoadData.csv")
 dat.Loads = dat.Loads[, -1]  #Kill fictional column
 dat.Loads$Date = as.Date(dat.Loads$Date)

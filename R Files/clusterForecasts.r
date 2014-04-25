@@ -47,3 +47,18 @@ clusplot(dat, fit4$cluster, color=TRUE, shade=TRUE,
          sub="", xlab="", ylab="")
 
 
+#identify the cluster labels for following indices
+INDXSET = c(116, 51, 239, 118, 73, 59, 218, 220, 99, 227)  #obtained by 10 k means
+clusters = fit4$cluster[INDXSET]
+
+fit4$cluster[c(72, 88, 221, 160)]
+#72 -> 3
+#88 -> 2
+#221 -> 1
+#160 -> 4
+
+library(plyr)
+clustermap = revalue(factor(fit4$cluster), c("3"="72", "2"="88", "1"="221", "4"="160"))
+
+write.csv(file="testClusterMap.csv", clustermap)
+
