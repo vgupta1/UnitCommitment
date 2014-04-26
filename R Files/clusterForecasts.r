@@ -59,6 +59,30 @@ fit4$cluster[c(72, 88, 221, 160)]
 
 library(plyr)
 clustermap = revalue(factor(fit4$cluster), c("3"="72", "2"="88", "1"="221", "4"="160"))
-
 write.csv(file="testClusterMap.csv", clustermap)
+
+
+## create the clusterMap for the vlaidation set
+dat.validate = read.csv("PredValidate.csv")
+dts.validate = as.Date(dat.validate[, 2])
+dat.validate = dat.validate[, 3:26]
+dat.validate = 1e-3 * dat.validate
+
+closest.cluster <- function(x) {
+  cluster.dist <- apply(fit4$centers, 1, function(y) sqrt(sum((x-y)^2)))
+  return(which.min(cluster.dist)[1])
+}
+clusters2 <- apply(dat.validate, 1, closest.cluster)
+
+#now need to remap them
+#72 -> 3
+#88 -> 2
+#221 -> 1
+#160 -> 4
+library(plyr)
+clustermap2 = revalue(factor(clusters2), c("3"="72", "2"="88", "1"="221", "4"="160"))
+
+
+write.csv(file="../../results/All/ValidateSet/validateClusterMap.csv", clustermap2)
+clustermap2[1:5]
 
