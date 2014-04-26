@@ -40,21 +40,21 @@ nomVals = Dict{Int, Float64}()
 warmStartsUCS = Dict{Int, WarmStartInfo}()
 warmStartsBudget = Dict{Int, WarmStartInfo}()
 for ix in INDXSET
-    m = RobustModel(solver=GurobiSolver(OutputFlag=0))
+    m = RobustModel(solver=GurobiSolver(OutputFlag=0, MipGap=1e-3, TimeLimit=15*60)
     nom = UCNom(m, gens, penalty)
     solve(nom, vals[ix, :])
     nom2 = secondSolve(nom, vals_true[ix, :], report=false)
     nomVals[ix] = getObjectiveValue(nom2.m)
 
 	#solve a robust problem for a UCS mipstart
-	m = RobustModel(solver=GurobiSolver(OutputFlag=0))
+	m = RobustModel(solver=GurobiSolver(OutputFlag=0, MipGap=1e-3, TimeLimit=15*60))
 	alphas, uncs = createPolyUCS(m, resids, Gamma1, Gamma2, kappa(eps))
 	rob = UCRob(m, gens, penalty, uncs)
 	solve(rob, vals[ix, :], report=false)
 	warmStartsUCS[ix] = copyWarmStart(rob, WarmStartInfo())
 
 	#solve a robust problem for the budget mipstart
-	m = RobustModel(solver=GurobiSolver(OutputFlag=0))
+	m = RobustModel(solver=GurobiSolver(OutputFlag=0, MipGap=1e-3, TimeLimit=15*60))
 	alphas, uncs = createBertSimU(m, mean(resids, 1), cov(resids), GammaBS, GammaBound, false)
 	rob = UCRob(m, gens, penalty, uncs)
 	solve(rob, vals[ix, :], report=false)
@@ -67,38 +67,38 @@ for (ix, numDirs) in product(INDXSET, [1:5])
 	cluster = clustermap[ix]
 
 	#solve a UC 
-	rm2 = RobustModel(solver=GurobiSolver(MIPGap=1e-3, OutputFlag=1, Method=3, TimeLimit=15*60), 
+	rm2 = RobustModel(solver=GurobiSolver(MIPGap=1e-3, OutputFlag=1, Method=3, TimeLimit=30*60), 
 					  cutsolver=GurobiSolver(OutputFlag=0))
 	alphas, uncs = createPolyUCS(rm2, resids, Gamma1, Gamma2, kappa(eps));
 	aff = UCAff(rm2, gens, penalty, uncs);
-	aff.proj_fcn = eigenProjMatrixData(resids, numEigs)
+	aff.proj_fcn = eigenProjMatrixData(resids, numDirs)
 	aff.warmstart = warmStartsUCS[ix]
 	aff.sample_uncs = readdlm(open("../results/Size_10/cuts$cluster.txt", "r"), '\t')
 	ucstime = 0
 	tic()
-	status = solve(aff, vals[ix, :], report=false, usebox=false, prefer_cuts=true)) 
+	status = solve(aff, vals[ix, :], report=false, usebox=false, prefer_cuts=true) 
 	ucstime += toq()
 
 	#write the adjusted values
-	writedlm(ofile, [numDirs ix status getObjectiveValue(rm2) nomVals[ix] ucstime])
+	writedlm(ofile, ["UCS" numDirs ix status getObjectiveValue(rm2) nomVals[ix] ucstime])
 	flush(ofile)
 
 	#solve the budget
-	rm2 = RobustModel(solver=GurobiSolver(MIPGap=1e-3, OutputFlag=1, Method=3, TimeLimit=15*60), 
+	rm2 = RobustModel(solver=GurobiSolver(MIPGap=1e-3, OutputFlag=1, Method=3, TimeLimit=30*60), 
 					  cutsolver=GurobiSolver(OutputFlag=0))
 	alphas, uncs = createBertSimU(rm2, mean(resids, 1), cov(resids), GammaBS, GammaBound, false)
 	aff = UCAff(rm2, gens, penalty, uncs);
-	aff.proj_fcn = identProjMatrixData(resids, numEigs)
+	aff.proj_fcn = identProjMatrixData(resids, numDirs)
 
 	aff.warmstart = warmStartsBudget[ix]
-	aff.sample_uncs = readdlm(open("../results/Size_10/cutsbudget$cluster.txt", "r"), '\t')
+	aff.sample_uncs = readdlm(open("../results/Size_10/budgetcut$cluster.txt", "r"), '\t')
 	budtime = 0
 	tic()
-	status = solve(aff, vals[ix, :], report=false, usebox=false, prefer_cuts=true)) 
+	status = solve(aff, vals[ix, :], report=false, usebox=false, prefer_cuts=true) 
 	budtime += toq()
 
 	#write the adjusted values
-	writedlm(ofile, [numDirs ix status getObjectiveValue(rm2) nomVals[ix] budtime ])
+	writedlm(ofile, ["Budget" numDirs ix status getObjectiveValue(rm2) nomVals[ix] budtime ])
 	flush(ofile)
 	println(ix, "  ", numDirs, "  ", ucstime, "  ", budtime)
 end
