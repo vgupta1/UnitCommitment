@@ -40,21 +40,21 @@ nomVals = Dict{Int, Float64}()
 warmStartsUCS = Dict{Int, WarmStartInfo}()
 warmStartsBudget = Dict{Int, WarmStartInfo}()
 for ix in INDXSET
-    m = RobustModel(solver=GurobiSolver(OutputFlag=0, MipGap=1e-3, TimeLimit=15*60)
+    m = RobustModel(solver=GurobiSolver(OutputFlag=0, MIPGap=1e-3, TimeLimit=15*60))
     nom = UCNom(m, gens, penalty)
     solve(nom, vals[ix, :])
     nom2 = secondSolve(nom, vals_true[ix, :], report=false)
     nomVals[ix] = getObjectiveValue(nom2.m)
 
 	#solve a robust problem for a UCS mipstart
-	m = RobustModel(solver=GurobiSolver(OutputFlag=0, MipGap=1e-3, TimeLimit=15*60))
+	m = RobustModel(solver=GurobiSolver(OutputFlag=0, MIPGap=1e-3, TimeLimit=15*60))
 	alphas, uncs = createPolyUCS(m, resids, Gamma1, Gamma2, kappa(eps))
 	rob = UCRob(m, gens, penalty, uncs)
 	solve(rob, vals[ix, :], report=false)
 	warmStartsUCS[ix] = copyWarmStart(rob, WarmStartInfo())
 
 	#solve a robust problem for the budget mipstart
-	m = RobustModel(solver=GurobiSolver(OutputFlag=0, MipGap=1e-3, TimeLimit=15*60))
+	m = RobustModel(solver=GurobiSolver(OutputFlag=0, MIPGap=1e-3, TimeLimit=15*60))
 	alphas, uncs = createBertSimU(m, mean(resids, 1), cov(resids), GammaBS, GammaBound, false)
 	rob = UCRob(m, gens, penalty, uncs)
 	solve(rob, vals[ix, :], report=false)
@@ -63,7 +63,7 @@ end
 println("Setting up MipStart Stuff", toc() )
 
 # iterate over directions
-for (ix, numDirs) in product(INDXSET, [1:5])
+for (ix, numDirs) in product(INDXSET, [1 2 3 5 10])
 	cluster = clustermap[ix]
 
 	#solve a UC 

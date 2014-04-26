@@ -61,7 +61,7 @@ for ix in INDXSET
 end
 println("Setting up MipStart Stuff", toc() )
 
-for (ix, mode) in product(INDXSET, [:true :none :random])
+for (ix, mode) in product(INDXSET, [:true :random :none])
 	cluster = clustermap[ix]
 
 	#solve a UC 

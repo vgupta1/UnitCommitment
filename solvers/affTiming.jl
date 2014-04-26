@@ -42,7 +42,7 @@ function testRun( iRun )
 	# aff.proj_fcn = eigenProjMatrixData(resids, numEigs)
 	# aff.warmstart = w
 
-	rm2 = RobustModel(solver=GurobiSolver(MIPGap=1e-3, TimeLimit=3*60, OutputFlag=1, Method=3), cutsolver=GurobiSolver(OutputFlag=0))  #MIPGap=5e-3
+	rm2 = RobustModel(solver=GurobiSolver(MIPGap=1e-3, TimeLimit=30*60, OutputFlag=1, Method=3), cutsolver=GurobiSolver(OutputFlag=0))  #MIPGap=5e-3
 	alphas, uncs = createBertSimU(rm2, mean(resids, 1), std(resids, 1), Gamma, GammaBound, false)
 	aff = UCAff(rm2, gens, penalty, uncs);
 	aff.proj_fcn = identProjMatrixData(resids, numEigs)
