@@ -1,6 +1,8 @@
 ###
 # Back Test for the Robust Set
 ###
+### VG Currently bug in the way residuals handled
+
 using DataFrames, Resampling, Iterators
 
 include("readGenerator.jl")
@@ -14,7 +16,7 @@ dts, vals           = readLoads("../Data/ISO-NE Load Data/PredValidate.csv")
 dts_true, vals_true = readLoads("../Data/ISO-NE Load Data/LoadValidate.csv")
 vals               *= scaling
 vals_true          *= scaling
-resids              = map(float, vals_true - vals);
+resids              = map(float, vals_true - vals);  #these should have been built from test data
 penalty             = 5e3
 box_ratio           = .933
 file_out             = fileout = open(ARGS[1], "w")

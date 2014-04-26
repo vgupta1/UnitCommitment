@@ -18,7 +18,7 @@ vals_true          *= scaling
 resids              = map(float, vals_true - vals)
 kappa(eps)          = sqrt(1/eps - 1)
 penalty             = 5e3
-numEigs             = 2
+numEigs             = 1
 ofile               = open(ARGS[1], "a")
 
 #VG Revisit these....
@@ -28,58 +28,51 @@ eps_grid = [.7, .8, .9, .95]
 #               95%       90%       85%       80%       75% 
 g1_grid = scaling * [0.5993808 0.5171897 0.4588753 0.4105277 0.3695186] 
 g2_grid = scaling * scaling * [4.974080  4.190187  3.713862  3.349935  3.035816]
-
-#limit life to the indices that matter
 INDXSET = [72, 88, 107, 160, 1, 2, 5, 204, 78]
-resids    = resids[INDXSET, :]
-vals      = vals[INDXSET, :]
-vals_true = vals_true[INDXSET, :]
-dts       = dts[INDXSET]
-dts_true  = dts_true[INDXSET]
+
+## Solve the nominal problems for variance reduction
+nomVals = Dict{Int, Float64}()
+for ix in INDXSET
+    m = RobustModel(solver=GurobiSolver(OutputFlag=0, MIPGap=1e-3, TimeLimit=15*60))
+    nom = UCNom(m, gens, penalty)
+    solve(nom, vals[ix, :])
+    nom2 = secondSolve(nom, vals_true[ix, :], report=false)
+    nomVals[ix] = getObjectiveValue(nom2.m)
+end
+
 
 tic()
 for (eps, g1, g2) in product(eps_grid, g1_grid, g2_grid)
 	#now iterate over everyone
 	costs = Float64[]
-	for ix = 1:size(resids, 1)
-		#Solve one robust model that will be used to warmstart everyone
-		m = RobustModel(solver=GurobiSolver(OutputFlag=0))
+	for ix in INDXSET
+		#Solve a robust model to warm start
+		m = RobustModel(solver=GurobiSolver(OutputFlag=0, MIPGap=1e-2, TimeLimit=60*15))
 		alphas, uncs = createPolyUCS(m, resids, g1, g2, kappa(eps))
 		rob = UCRob(m, gens, penalty, uncs)
-		solve(rob, vals[1, :], report=false)
-		w = WarmStartInfo()
-		copyWarmStart(rob, w)
-
+		solve(rob, vals[ix, :], report=false)
+		copyWarmStart(rob, WarmStartInfo())
 
 		#train and solve an affine model
 		train_indx = [1:ix-1, ix+1:size(resids,1)]
-		rm2 = RobustModel(solver=GurobiSolver(MIPGap=1e-3, OutputFlag=0, Method=-1, TimeLimit=60*15), 
+		rm2 = RobustModel(solver=GurobiSolver(MIPGap=1e-3, OutputFlag=0, Method=3, TimeLimit=60*30), 
 						 cutsolver=GurobiSolver(OutputFlag=0))
 		alphas, uncs = createPolyUCS(rm2, resids[train_indx, :], g1, g2, kappa(eps), true)
 		aff = UCAff(rm2, gens, penalty, uncs)
 		aff.proj_fcn = eigenProjMatrixData(resids[train_indx, :], numEigs)
 
-		#Add some random cuts for good luck. ;)
-		if length(ARGS) >= 2
-			samples = readdlm(open(ARGS[2], "r"), '\t')
-			aff.sample_uncs = samples
-		end
+		samples = readdlm(open(ARGS[2], "r"), '\t')
+		aff.sample_uncs = samples
 
 		try
 			solve(aff, vals[ix, :], report=false, usebox=false, prefer_cuts=true)
 			aff2     = secondSolve(aff, vals_true[ix, :], report=false)
-
-			#solve a nominal model for the variance reduction
-	        m = RobustModel(solver=GurobiSolver(OutputFlag=0))
-	        nom = UCNom(m, gens, penalty)
-	        solve(nom, vals[ix, :])
-	        nom2 = secondSolve(nom, vals_true[ix, :], report=false)
-
-			push!(costs, getObjectiveValue(nom2.m) - getObjectiveValue(aff2.m) )
+			push!(costs, nomVals[ix] - getObjectiveValue(aff2.m) )
 		catch e
 			show(e)
 		end
 	end
+
 	#tally up what you've got and write to file
 	writedlm(ofile, [eps g1 g2 mean(costs) std(costs) length(costs) ])
 	flush(ofile)

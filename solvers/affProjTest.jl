@@ -40,7 +40,7 @@ nomVals = Dict{Int, Float64}()
 warmStartsUCS = Dict{Int, WarmStartInfo}()
 warmStartsBudget = Dict{Int, WarmStartInfo}()
 for ix in INDXSET
-    m = RobustModel(solver=GurobiSolver(OutputFlag=0, MipGap=1e-3, TimeLimit=15*60)
+    m = RobustModel(solver=GurobiSolver(OutputFlag=0, MipGap=1e-3, TimeLimit=15*60))
     nom = UCNom(m, gens, penalty)
     solve(nom, vals[ix, :])
     nom2 = secondSolve(nom, vals_true[ix, :], report=false)
