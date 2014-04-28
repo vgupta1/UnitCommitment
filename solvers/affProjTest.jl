@@ -37,28 +37,28 @@ clustermap = Dict(INDXSET, clustermap)
 #solve the nominal problems and the robust problems for variance reduction
 tic()
 nomVals = Dict{Int, Float64}()
-# warmStartsUCS = Dict{Int, WarmStartInfo}()
-# warmStartsBudget = Dict{Int, WarmStartInfo}()
+warmStartsUCS = Dict{Int, WarmStartInfo}()
+warmStartsBudget = Dict{Int, WarmStartInfo}()
 for ix in INDXSET
-    m = RobustModel(solver=GurobiSolver(OutputFlag=0, MIPGap=1e-3, TimeLimit=2*60))
+    m = RobustModel(solver=GurobiSolver(OutputFlag=0, MIPGap=1e-3, TimeLimit=15*60))
     nom = UCNom(m, gens, penalty)
     solve(nom, vals[ix, :])
     nom2 = secondSolve(nom, vals_true[ix, :], report=false)
     nomVals[ix] = getObjectiveValue(nom2.m)
 
-	# #solve a robust problem for a UCS mipstart
-	# m = RobustModel(solver=GurobiSolver(OutputFlag=0, MIPGap=1e-3, TimeLimit=2*60))
-	# alphas, uncs = createPolyUCS(m, resids, Gamma1, Gamma2, kappa(eps))
-	# rob = UCRob(m, gens, penalty, uncs)
-	# solve(rob, vals[ix, :], report=false)
-	# warmStartsUCS[ix] = copyWarmStart(rob, WarmStartInfo())
+	#solve a robust problem for a UCS mipstart
+	m = RobustModel(solver=GurobiSolver(OutputFlag=0, MIPGap=1e-3, TimeLimit=15*60))
+	alphas, uncs = createPolyUCS(m, resids, Gamma1, Gamma2, kappa(eps))
+	rob = UCRob(m, gens, penalty, uncs)
+	solve(rob, vals[ix, :], report=false)
+	warmStartsUCS[ix] = copyWarmStart(rob, WarmStartInfo())
 
-	# #solve a robust problem for the budget mipstart
-	# m = RobustModel(solver=GurobiSolver(OutputFlag=0, MIPGap=1e-3, TimeLimit=2*60))
-	# alphas, uncs = createBertSimU(m, mean(resids, 1), cov(resids), GammaBS, GammaBound, false)
-	# rob = UCRob(m, gens, penalty, uncs)
-	# solve(rob, vals[ix, :], report=false)
-	# warmStartsBudget[ix] = copyWarmStart(rob, WarmStartInfo())
+	#solve a robust problem for the budget mipstart
+	m = RobustModel(solver=GurobiSolver(OutputFlag=0, MIPGap=1e-3, TimeLimit=15*60))
+	alphas, uncs = createBertSimU(m, mean(resids, 1), cov(resids), GammaBS, GammaBound, false)
+	rob = UCRob(m, gens, penalty, uncs)
+	solve(rob, vals[ix, :], report=false)
+	warmStartsBudget[ix] = copyWarmStart(rob, WarmStartInfo())
 end
 println("Setting up MipStart Stuff", toc() )
 
@@ -77,7 +77,7 @@ for (numDirs, ix) in product([1 2 3 5 10],INDXSET)
 	alphas, uncs = createPolyUCS(rm2, resids, Gamma1, Gamma2, kappa(eps));
 	aff = UCAff(rm2, gens, penalty, uncs);
 	aff.proj_fcn = eigenProjMatrixData(resids, numDirs)
-	# aff.warmstart = warmStartsUCS[ix]
+	aff.warmstart = warmStartsUCS[ix]
 	aff.sample_uncs = readdlm(open("../results/Size_10/cuts$cluster.txt", "r"), '\t')
 	ucstime = 0
 	tic()
@@ -95,7 +95,7 @@ for (numDirs, ix) in product([1 2 3 5 10],INDXSET)
 	alphas, uncs = createBertSimU(rm2, mean(resids, 1), cov(resids), GammaBS, GammaBound, false)
 	aff = UCAff(rm2, gens, penalty, uncs);
 	aff.proj_fcn = identProjMatrixData(resids, numDirs)
-	# aff.warmstart = warmStartsBudget[ix]
+	aff.warmstart = warmStartsBudget[ix]
 	aff.sample_uncs = readdlm(open("../results/Size_10/budgetcut$cluster.txt", "r"), '\t')
 	budtime = 0
 	tic()
