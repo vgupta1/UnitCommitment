@@ -25,10 +25,10 @@ GammaBound          = 3
 
 ##################################
 #solve the robust problem for a warmstart
-m = RobustModel(solver=GurobiSolver(OutputFlag=0))
+# m = RobustModel(solver=GurobiSolver(OutputFlag=0))
 # alphas, uncs = createPolyUCS(m, resids, Gamma1, Gamma2, kappa(eps))
-alphas, uncs = createBertSimU(m, mean(resids, 1), std(resids, 1), Gamma, GammaBound, false)
-rob = UCRob(m, gens, penalty, uncs)
+# alphas, uncs = createBertSimU(m, mean(resids, 1), std(resids, 1), Gamma, GammaBound, false)
+# rob = UCRob(m, gens, penalty, uncs)
 # solve(rob, vals[int(ARGS[1]), :], report=true)
 # w = copyWarmStart(rob, WarmStartInfo())
 
@@ -36,17 +36,17 @@ rob = UCRob(m, gens, penalty, uncs)
 ## a test function
 clusters = [72, 88, 221, 160]
 function testRun( iRun )
-	# rm2 = RobustModel(solver=GurobiSolver(MIPGap=1e-3, OutputFlag=1, Method=3), cutsolver=GurobiSolver(OutputFlag=0))  #MIPGap=5e-3
-	# alphas, uncs = createPolyUCS(rm2, resids, Gamma1, Gamma2, kappa(eps));
-	# aff = UCAff(rm2, gens, penalty, uncs);
-	# aff.proj_fcn = eigenProjMatrixData(resids, numEigs)
+	rm2 = RobustModel(solver=GurobiSolver(MIPGap=1e-3, OutputFlag=1, Method=3), cutsolver=GurobiSolver(OutputFlag=0))  #MIPGap=5e-3
+	alphas, uncs = createPolyUCS(rm2, resids, Gamma1, Gamma2, kappa(eps));
+	aff = UCAff(rm2, gens, penalty, uncs);
+	aff.proj_fcn = eigenProjMatrixData(resids, numEigs)
 	# aff.warmstart = w
 
-	rm2 = RobustModel(solver=GurobiSolver(MIPGap=1e-3, TimeLimit=30*60, OutputFlag=1, Method=3), cutsolver=GurobiSolver(OutputFlag=0))  #MIPGap=5e-3
-	alphas, uncs = createBertSimU(rm2, mean(resids, 1), std(resids, 1), Gamma, GammaBound, false)
-	aff = UCAff(rm2, gens, penalty, uncs);
-	aff.proj_fcn = identProjMatrixData(resids, numEigs)
-	# aff.warmstart = w
+	# rm2 = RobustModel(solver=GurobiSolver(MIPGap=1e-3, TimeLimit=30*60, OutputFlag=1, Method=3), cutsolver=GurobiSolver(OutputFlag=0))  #MIPGap=5e-3
+	# alphas, uncs = createBertSimU(rm2, mean(resids, 1), std(resids, 1), Gamma, GammaBound, false)
+	# aff = UCAff(rm2, gens, penalty, uncs);
+	# aff.proj_fcn = identProjMatrixData(resids, numEigs)
+	# # aff.warmstart = w
 
 	# # read in the starting cuts
 	# if length(ARGS) >= 3
@@ -63,7 +63,7 @@ function testRun( iRun )
 	ac = unique(ac)
 	println(" Unique: $(length(ac))")
 
-	outpath = "budgetcut$iRun.txt"
+	outpath = "cut$iRun.txt"
 	ofile = open(outpath, "w")
 	#ofile = open(ARGS[3], "w")
 	for ix = 1:length(ac)
