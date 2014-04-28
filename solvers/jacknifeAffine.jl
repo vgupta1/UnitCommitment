@@ -28,7 +28,7 @@ eps_grid = [.7, .8, .9, .95]
 #               95%       90%       85%       80%       75% 
 g1_grid = scaling * [0.5993808 0.5171897 0.4588753 0.4105277 0.3695186] 
 g2_grid = scaling * scaling * [4.974080  4.190187  3.713862  3.349935  3.035816]
-INDXSET = [72, 88, 107, 160, 1, 2, 5, 204, 78]
+INDXSET = [116, 51, 239, 118, 73, 59, 218, 220, 99, 227]  #obtained by 10 k means
 
 ## Solve the nominal problems for variance reduction
 nomVals = Dict{Int, Float64}()
@@ -42,10 +42,9 @@ end
 
 
 tic()
-writedlm(ofile, ["Epsilon" "Gamma1" "Gamma2" "Indx" "TotCost" "StartCost" "VarCost" "Shed" ])
+writedlm(ofile, ["Epsilon" "Gamma1" "Gamma2" "Indx" "TotCost" "StartCost" "VarCost" "Shed" "NomVal" ])
 for (eps, g1, g2) in product(eps_grid, g1_grid, g2_grid)
 	#now iterate over everyone
-	costs = Float64[]
 	for ix in INDXSET
 		#Solve a robust model to warm start
 		m = RobustModel(solver=GurobiSolver(OutputFlag=0, MIPGap=1e-2, TimeLimit=60*15))
@@ -62,13 +61,14 @@ for (eps, g1, g2) in product(eps_grid, g1_grid, g2_grid)
 		aff = UCAff(rm2, gens, penalty, uncs)
 		aff.proj_fcn = eigenProjMatrixData(resids[train_indx, :], numEigs)
 
-		samples = readdlm(open(ARGS[2], "r"), '\t')
-		aff.sample_uncs = samples
+		# samples = readdlm(open(ARGS[2], "r"), '\t')
+		# aff.sample_uncs = samples
 
 		try
 			solve(aff, vals[ix, :], report=false, usebox=false, prefer_cuts=true)
 			aff2     = secondSolve(aff, vals_true[ix, :], report=false)
-			writedlm(ofile, [eps g1 g2 ix getObjectiveValue(aff2.m) getStartCost(aff) getVarCost(aff2) totShed(aff2) ])
+			writedlm(ofile, [eps g1 g2 ix getObjectiveValue(aff2.m) getStartCost(aff) getVarCost(aff2) totShed(aff2) nomVals[ix] ])
+			flush(ofile)
 		catch e
 			show(e)
 		end
