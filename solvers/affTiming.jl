@@ -8,7 +8,7 @@ include("robustsolver.jl")
 include("UncSets.jl")
 include("adaptivesolver.jl")
 
-gens, scaling       = loadISO("../Data/AndysGenInstance", .1, true)
+gens, scaling       = loadISO("../Data/AndysGenInstance", 1-1e-8, true)
 dts, vals           = readLoads("../Data/ISO-NE Load Data/PredTest.csv")
 dts_true, vals_true = readLoads("../Data/ISO-NE Load Data/LoadTest.csv")
 vals               *= scaling
@@ -29,8 +29,8 @@ m = RobustModel(solver=GurobiSolver(OutputFlag=0))
 # alphas, uncs = createPolyUCS(m, resids, Gamma1, Gamma2, kappa(eps))
 alphas, uncs = createBertSimU(m, mean(resids, 1), std(resids, 1), Gamma, GammaBound, false)
 rob = UCRob(m, gens, penalty, uncs)
-solve(rob, vals[int(ARGS[1]), :], report=true)
-w = copyWarmStart(rob, WarmStartInfo())
+# solve(rob, vals[int(ARGS[1]), :], report=true)
+# w = copyWarmStart(rob, WarmStartInfo())
 
 ##################################
 ## a test function
@@ -46,7 +46,7 @@ function testRun( iRun )
 	alphas, uncs = createBertSimU(rm2, mean(resids, 1), std(resids, 1), Gamma, GammaBound, false)
 	aff = UCAff(rm2, gens, penalty, uncs);
 	aff.proj_fcn = identProjMatrixData(resids, numEigs)
-	aff.warmstart = w
+	# aff.warmstart = w
 
 	# # read in the starting cuts
 	# if length(ARGS) >= 3

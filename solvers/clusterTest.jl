@@ -61,7 +61,12 @@ for ix in INDXSET
 end
 println("Setting up MipStart Stuff", toc() )
 
-for (ix, mode) in product(INDXSET, [:true :random :none])
+for (mode, ix) in product([:true :random :none], INDXSET)
+	if ix == INDXSET[1]
+		#Write a header to the file
+		writedlm(ofile, ["Set" "Mode" "Indx" "Status" "TotCost" "StartCost" "VarCost" "Shed" "NomTotCost" "SolveTime"])
+	end
+
 	cluster = clustermap[ix]
 
 	#solve a UC 
@@ -85,10 +90,13 @@ for (ix, mode) in product(INDXSET, [:true :random :none])
 	status = solve(aff, vals[ix, :], report=false, usebox=false, prefer_cuts=true) 
 	ucstime += toq()
 
+	#do a second solve
+	aff2 = secondSolve(aff, vals_true[ix, :], report=false)
+
 	#write the adjusted values
-	writedlm(ofile, [mode ix status getObjectiveValue(rm2) nomVals[ix] ucstime])
+	writedlm(ofile, ["UCS" mode ix status getObjectiveValue(aff2.m) getStartCost(aff) getVarCost(aff2) totShed(aff2) nomVals[ix] ucstime])
 	flush(ofile)
-	println([mode ix status getObjectiveValue(rm2) nomVals[ix] ucstime])
+	println(["UCS" mode ix status getObjectiveValue(aff2.m) getStartCost(aff) getVarCost(aff2) totShed(aff2) nomVals[ix] ucstime])
 
 
 	# #solve the budget
