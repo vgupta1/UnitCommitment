@@ -61,12 +61,8 @@ for ix in INDXSET
 end
 println("Setting up MipStart Stuff", toc() )
 
+writedlm(ofile, ["Set" "Mode" "Indx" "Status" "TotCost" "StartCost" "VarCost" "Shed" "NomTotCost" "SolveTime"])
 for (mode, ix) in product([:true :random :none], INDXSET)
-	if ix == INDXSET[1]
-		#Write a header to the file
-		writedlm(ofile, ["Set" "Mode" "Indx" "Status" "TotCost" "StartCost" "VarCost" "Shed" "NomTotCost" "SolveTime"])
-	end
-
 	cluster = clustermap[ix]
 
 	#solve a UC 
