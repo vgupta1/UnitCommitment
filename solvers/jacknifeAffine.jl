@@ -10,7 +10,7 @@ include("robustsolver.jl")
 include("UncSets.jl")
 include("adaptivesolver.jl")
 
-gens, scaling       = loadISO("../Data/AndysGenInstance", 1)
+gens, scaling       = loadISO("../Data/AndysGenInstance", .1)
 dts, vals           = readLoads("../Data/ISO-NE Load Data/PredTest.csv")
 dts_true, vals_true = readLoads("../Data/ISO-NE Load Data/LoadTest.csv")
 vals               *= scaling
@@ -42,6 +42,7 @@ end
 
 
 tic()
+writedlm(ofile, ["Epsilon" "Gamma1" "Gamma2" "Indx" "TotCost" "StartCost" "VarCost" "Shed" ])
 for (eps, g1, g2) in product(eps_grid, g1_grid, g2_grid)
 	#now iterate over everyone
 	costs = Float64[]
@@ -67,15 +68,13 @@ for (eps, g1, g2) in product(eps_grid, g1_grid, g2_grid)
 		try
 			solve(aff, vals[ix, :], report=false, usebox=false, prefer_cuts=true)
 			aff2     = secondSolve(aff, vals_true[ix, :], report=false)
-			push!(costs, nomVals[ix] - getObjectiveValue(aff2.m) )
+			writedlm(ofile, [eps g1 g2 ix getObjectiveValue(aff2.m) getStartCost(aff) getVarCost(aff2) totShed(aff2) ])
 		catch e
 			show(e)
 		end
 	end
 
-	#tally up what you've got and write to file
-	writedlm(ofile, [eps g1 g2 mean(costs) std(costs) length(costs) ])
-	flush(ofile)
+	#Status
 	println(eps, "  ", g1, "  ", g2, "  ", toq())
 	tic()
 end

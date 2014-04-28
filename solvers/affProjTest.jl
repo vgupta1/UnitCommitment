@@ -62,14 +62,10 @@ for ix in INDXSET
 end
 println("Setting up MipStart Stuff", toc() )
 
+writedlm(ofile, ["Set" "NumEigs" "Ind" "Status" "TotCost" "StartCost" "VarCost" "Shed" "NomTotCost" "SolveTime"])
 # iterate over directions
 for (numDirs, ix) in product([1 2 3 5 10],INDXSET)
 	cluster = clustermap[ix]
-
-	if ix == INDXSET[1]
-		#Write a header to the file
-		writedlm(ofile, ["Set" "NumEigs" "Ind" "Status" "TotCost" "StartCost" "VarCost" "Shed" "NomTotCost" "SolveTime"])
-	end
 
 	#solve a UC 
 	rm2 = RobustModel(solver=GurobiSolver(MIPGap=1e-3, OutputFlag=1, Method=3, TimeLimit=60*60), 
