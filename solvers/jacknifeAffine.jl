@@ -45,7 +45,6 @@ tic()
 writedlm(ofile, ["Epsilon" "Gamma1" "Gamma2" "Indx" "TotCost" "StartCost" "VarCost" "Shed" "NomVals" ])
 for (eps, g1, g2) in product(eps_grid, g1_grid, g2_grid)
 	#now iterate over everyone
-	costs = Float64[]
 	for ix in INDXSET
 		#Solve a robust model to warm start
 		m = RobustModel(solver=GurobiSolver(OutputFlag=0, MIPGap=1e-2, TimeLimit=60*15))
@@ -62,8 +61,8 @@ for (eps, g1, g2) in product(eps_grid, g1_grid, g2_grid)
 		aff = UCAff(rm2, gens, penalty, uncs)
 		aff.proj_fcn = eigenProjMatrixData(resids[train_indx, :], numEigs)
 
-#		samples = readdlm(open(ARGS[2], "r"), '\t')
-#		aff.sample_uncs = samples
+		# samples = readdlm(open(ARGS[2], "r"), '\t')
+		# aff.sample_uncs = samples
 
 		try
 			solve(aff, vals[ix, :], report=false, usebox=false, prefer_cuts=true)
