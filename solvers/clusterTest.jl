@@ -9,7 +9,7 @@ include("robustsolver.jl")
 include("UncSets.jl")
 include("adaptivesolver.jl")
 
-gens, scaling       = loadISO("../Data/AndysGenInstance", .1)
+gens, scaling       = loadISO("../Data/AndysGenInstance", 1-1e-8)
 dts, vals           = readLoads("../Data/ISO-NE Load Data/PredTest.csv")
 dts_true, vals_true = readLoads("../Data/ISO-NE Load Data/LoadTest.csv")
 vals               *= scaling
@@ -70,7 +70,7 @@ for (mode, ix) in product([:true :random :none], INDXSET)
 	cluster = clustermap[ix]
 
 	#solve a UC 
-	rm2 = RobustModel(solver=GurobiSolver(MIPGap=1e-3, OutputFlag=1, Method=3, TimeLimit=30*60), 
+	rm2 = RobustModel(solver=GurobiSolver(MIPGap=1e-3, OutputFlag=1, Method=3, TimeLimit=45*60), 
 					  cutsolver=GurobiSolver(OutputFlag=0))
 	alphas, uncs = createPolyUCS(rm2, resids, Gamma1, Gamma2, kappa(eps));
 	aff = UCAff(rm2, gens, penalty, uncs);
