@@ -17,7 +17,7 @@ vals_true          *= scaling
 resids              = map(float, vals_true - vals);
 kappa(eps)          = sqrt(1/eps - 1)
 penalty             = 5e3
-ofile               = open(ARGS[1], "a")
+ofile               = open(ARGS[1], "w")
 
 #VG Revisit these
 Gamma1              = .5 * scaling
@@ -74,12 +74,12 @@ for (mode, ix) in product([:true :random :none], INDXSET)
 	aff.warmstart = warmStartsUCS[ix]
 	
 	if mode == :true
-		aff.sample_uncs = readdlm(open("../results/Size_10/cuts$cluster.txt", "r"), '\t')
+		aff.sample_uncs = readdlm(open("../results/Size_10/TestSet/cuts$cluster.txt", "r"), '\t')
 	elseif mode ==:random
 		#choose a random number that's not cluster the given cluster
 		indx = ceil(rand() * 3)
 		cluster = filter(x-> x != cluster, clusters)[indx]
-		aff.sample_uncs = readdlm(open("../results/Size_10/cuts$cluster.txt", "r"), '\t')
+		aff.sample_uncs = readdlm(open("../results/Size_10/TestSet/cuts$cluster.txt", "r"), '\t')
 	end		
 	ucstime = 0
 	tic()
