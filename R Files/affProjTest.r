@@ -4,12 +4,11 @@
 library(ggplot2)
 library(plyr)
 library(reshape)
-setwd("/Users/VGupta/Documents/Research/UnitCommittment/UnitCommitment/results/All/TestSet/")
+setwd("/Users/VGupta/Documents/Research/UnitCommittment/UnitCommitment/results/Size_10/")
 
-dat.proj = read.delim("./affprojresults.txt", header=FALSE, sep="\t")
-names(dat.proj) <- c("Set", "NumEigs", "Indx", "Status", "TotCost", "nomVal", "SolveTime")
+dat.proj = read.delim("./affprojresults.txt", header=TRUE, sep="\t")
 
-dat.by.method = cast(data=subset(dat.proj, Status=="Optimal"), formula=Indx + NumEigs ~ Set, value="TotCost")
+dat.by.method = cast(data=dat.proj, formula=Ind + NumEigs ~ Set, value="TotCost")
 ggplot(aes(x=Budget * 1e-3, y=UCS * 1e-3, color=factor(Indx)), 
        data=dat.by.method) + geom_point()
 
