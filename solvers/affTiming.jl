@@ -63,7 +63,7 @@ function testRun( iRun )
 	ac = unique(ac)
 	println(" Unique: $(length(ac))")
 
-	outpath = "cut$iRun.txt"
+	outpath = "cuts$iRun.txt"
 	ofile = open(outpath, "w")
 	#ofile = open(ARGS[3], "w")
 	for ix = 1:length(ac)
