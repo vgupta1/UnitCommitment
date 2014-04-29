@@ -74,7 +74,7 @@ for (numDirs, ix) in product([1 2 3 5 10],INDXSET)
 	aff = UCAff(rm2, gens, penalty, uncs);
 	aff.proj_fcn = eigenProjMatrixData(resids, numDirs)
 	aff.warmstart = warmStartsUCS[ix]
-	aff.sample_uncs = readdlm(open("../results/Size_10/cuts$cluster.txt", "r"), '\t')
+	aff.sample_uncs = readdlm(open("../results/Size_10/TestSet/cuts$cluster.txt", "r"), '\t')
 	ucstime = 0
 	tic()
 	status = solve(aff, vals[ix, :], report=false, usebox=false, prefer_cuts=true) 
@@ -92,7 +92,7 @@ for (numDirs, ix) in product([1 2 3 5 10],INDXSET)
 	aff = UCAff(rm2, gens, penalty, uncs);
 	aff.proj_fcn = identProjMatrixData(resids, numDirs)
 	aff.warmstart = warmStartsBudget[ix]
-	aff.sample_uncs = readdlm(open("../results/Size_10/budgetcut$cluster.txt", "r"), '\t')
+	aff.sample_uncs = readdlm(open("../results/Size_10/TestSet/budgetcut$cluster.txt", "r"), '\t')
 	budtime = 0
 	tic()
 	status = solve(aff, vals[ix, :], report=false, usebox=false, prefer_cuts=true) 
