@@ -43,7 +43,7 @@ for (g1, g2) in product(G1_grid, G2_grid)
 		alphas, uncs = createBertSimU(m, mean(resids, 1), std(resids, 1), g1, g2, false)
 		rob = UCRob(m, gens, penalty, uncs)
 		solve(rob, vals[ix, :], report=false)
-		copyWarmStart(rob, WarmStartInfo())
+		w = copyWarmStart(rob, WarmStartInfo())
 
 		#train and solve an affine model
 		train_indx = [1:ix-1, ix+1:size(resids,1)]
@@ -52,6 +52,7 @@ for (g1, g2) in product(G1_grid, G2_grid)
 		alphas, uncs = createBertSimU(rm2, mean(resids[train_indx, :], 1), cov(resids[train_indx, :]), g1, g2, false)
 		aff = UCAff(rm2, gens, penalty, uncs)
 		aff.proj_fcn = hr -> eye(HRS)
+		aff.warmstart = w
 
 
 		try
