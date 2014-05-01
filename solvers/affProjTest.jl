@@ -18,28 +18,23 @@ vals_true          *= scaling
 resids              = map(float, vals_true - vals);
 kappa(eps)          = sqrt(1/eps - 1)
 penalty             = 5e3
-ofile               = open(ARGS[1], "a")
+ofile               = open(ARGS[1], "w")
 
-#VG Revisit these.. Current Values correspond to delta/2 = 10%
-Gamma1              = .514 * scaling
-Gamma2              = 4.2  * scaling * scaling
+
+Gamma1              = .14  #chosen via rough jacknife
+Gamma2              = .27 
 eps                 = .1
-GammaBS             = sqrt(HRS) * 2.5
-GammaBound          = 3
+GammaBS             = 1.282 * sqrt(HRS)  #These are guestimated.
+GammaBound          = 3.0
 
-
-#map the above indices to their appropriate clusters (4)
-clusters = [72, 88, 221, 160]
 INDXSET = [116, 51, 239, 118, 73, 59, 218, 220, 99, 227]  #obtained by 10 k means
-clustermap = [72  72  88  88  221 221 160 160 160 160]  #only pertains ot indx set
-clustermap = Dict(INDXSET, clustermap)
 
 #solve the nominal problems and the robust problems for variance reduction
 tic()
 nomVals = Dict{Int, Float64}()
 warmStartsUCS = Dict{Int, WarmStartInfo}()
 warmStartsBudget = Dict{Int, WarmStartInfo}()
-for ix in INDXSET
+for ix in INDXSET[1]
     m = RobustModel(solver=GurobiSolver(OutputFlag=0, MIPGap=1e-3, TimeLimit=15*60))
     nom = UCNom(m, gens, penalty)
     solve(nom, vals[ix, :])
@@ -62,49 +57,39 @@ for ix in INDXSET
 end
 println("Setting up MipStart Stuff", toc() )
 
-writedlm(ofile, ["Set" "NumEigs" "Ind" "Status" "TotCost" "StartCost" "VarCost" "Shed" "NomTotCost" "SolveTime"])
+writedlm(ofile, ["Set" "NumEigs" "Ind" "Status" "TotCost" "StartCost" "VarCost" "Shed" "NomTotCost" "SolveTime" "Gap"])
 # iterate over directions
-for (numDirs, ix) in product([1 2 3 5 10],INDXSET)
-	if (ix == 116) && (numDirs < 4)
-		continue
-	end
-
-	cluster = clustermap[ix]
-
+for (numDirs, ix) in product([1 2 3 5 10],INDXSET[1])
 	#solve a UC 
-	rm2 = RobustModel(solver=GurobiSolver(MIPGap=1e-3, OutputFlag=1, Method=3, TimeLimit=60*60), 
+	rm2 = RobustModel(solver=GurobiSolver(MIPGap=1e-3, OutputFlag=0, Method=3, TimeLimit=60*60), 
 					  cutsolver=GurobiSolver(OutputFlag=0))
 	alphas, uncs = createPolyUCS(rm2, resids, Gamma1, Gamma2, kappa(eps));
 	aff = UCAff(rm2, gens, penalty, uncs);
 	aff.proj_fcn = eigenProjMatrixData(resids, numDirs)
 	aff.warmstart = warmStartsUCS[ix]
-	aff.sample_uncs = readdlm(open("../results/Size_10/TestSet/cuts$cluster.txt", "r"), '\t')
-	ucstime = 0
-	tic()
+	ucstime = 0; tic()
 	status = solve(aff, vals[ix, :], report=false, usebox=false, prefer_cuts=true) 
 	ucstime += toq()
 	aff2 = secondSolve(aff, vals_true[ix, :], report=false)
 
 	#write the adjusted values
-	writedlm(ofile, ["UCS" numDirs ix status getObjectiveValue(aff2.m) getStartCost(aff) getVarCost(aff2) totShed(aff2) nomVals[ix] ucstime])
+	writedlm(ofile, ["UCS" numDirs ix status getObjectiveValue(aff2.m) getStartCost(aff) getVarCost(aff2) totShed(aff2) nomVals[ix] ucstime getgap(aff)])
 	flush(ofile)
 
 	#solve the budget
-	rm2 = RobustModel(solver=GurobiSolver(MIPGap=1e-3, OutputFlag=1, Method=3, TimeLimit=60*60), 
+	rm2 = RobustModel(solver=GurobiSolver(MIPGap=1e-3, OutputFlag=0, Method=3, TimeLimit=60*60), 
 					  cutsolver=GurobiSolver(OutputFlag=0))
 	alphas, uncs = createBertSimU(rm2, mean(resids, 1), cov(resids), GammaBS, GammaBound, false)
 	aff = UCAff(rm2, gens, penalty, uncs);
 	aff.proj_fcn = identProjMatrixData(resids, numDirs)
 	aff.warmstart = warmStartsBudget[ix]
-	aff.sample_uncs = readdlm(open("../results/Size_10/TestSet/budgetcut$cluster.txt", "r"), '\t')
-	budtime = 0
-	tic()
+	budtime = 0; tic()
 	status = solve(aff, vals[ix, :], report=false, usebox=false, prefer_cuts=true) 
 	budtime += toq()
 	aff2 = secondSolve(aff, vals_true[ix, :], report=false)
 
 	#write the adjusted values
-	writedlm(ofile, ["Budget" numDirs ix status getObjectiveValue(aff2.m) getStartCost(aff) getVarCost(aff2) totShed(aff2) nomVals[ix] budtime ])
+	writedlm(ofile, ["Budget" numDirs ix status getObjectiveValue(aff2.m) getStartCost(aff) getVarCost(aff2) totShed(aff2) nomVals[ix] budtime getgap(aff) ])
 	flush(ofile)
 	println(ix, "  ", numDirs, "  ", ucstime, "  ", budtime)
 end

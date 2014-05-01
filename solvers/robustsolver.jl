@@ -44,3 +44,6 @@ end
 
 ## addSecondStage! of the nominal model pertains here bc non-adaptive
 solve_(rob::UCRob, report; args...) = JuMPeR.solveRobust(rob.m, report=report; args...)
+getgap(rob::UCRob) = rob.m.ext[:Gap]
+
+

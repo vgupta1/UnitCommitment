@@ -243,3 +243,4 @@ function addLoadBalance!(aff::UCAff, forecasts)
     addWarmStart!(aff)  ##VG Move this to main with a try-catch
 end
 
+getgap(aff::UCAff) = aff.m.ext[:Gap]

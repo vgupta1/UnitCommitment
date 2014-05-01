@@ -4,9 +4,24 @@
 library(ggplot2)
 library(plyr)
 library(reshape)
-setwd("/Users/VGupta/Documents/Research/UnitCommittment/UnitCommitment/results/Size_10/")
+setwd("/Users/VGupta/Documents/Research/UnitCommittment/UnitCommitment/results/Size_10/TestSet/")
 
 dat.proj = read.delim("./affprojresults.txt", header=TRUE, sep="\t")
+
+#boxplots
+ggplot(aes(x=NumEigs, y=TotCost, group=NumEigs), 
+       data=dat.proj) + 
+  geom_boxplot() +
+  facet_grid(.~Set)
+
+#point values
+#User limit is an issue...
+ggplot(aes(x=NumEigs, y=TotCost, group=NumEigs), 
+       data=dat.proj) + 
+  geom_point(aes(color=Status)) +
+  facet_grid(.~Set)
+
+
 
 dat.by.method = cast(data=dat.proj, formula=Ind + NumEigs ~ Set, value="TotCost")
 ggplot(aes(x=Budget * 1e-3, y=UCS * 1e-3, color=factor(Ind)), 
