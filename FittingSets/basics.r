@@ -5,20 +5,19 @@
 
 #read in the whole csv
 setwd("/Users/VGupta/Documents/Research/UnitCommittment/UnitCommitment/Data/ISO-NE Load Data/")
-
 dat.Loads = read.csv("HourlyLoadData.csv")
 dat.Loads = dat.Loads[, -1]  #Kill fictional column
 dat.Loads$Date = as.Date(dat.Loads$Date)
+dat.Loads$DateHour = as.POSIXlt(dat.Loads$Date) + (dat.Loads$HOUR -1) * 3600  #hour info
 
-#Incorporate the hour information
-#This is possibly not the smartest way
-dat.Loads$DateHour = as.POSIXlt(dat.Loads$Date) + (dat.Loads$HOUR -1) * 3600
+isWkEnd = function(dt){ weekdays(dt) %in% c("Saturday", "Sunday")}
+dat.Loads$isWkEnd = isWkEnd(dat.Loads$Date)
 
-
-#Some simple plots
+########################
+#### Basic plots for paper
+#########################
 library(ggplot2)
 library(reshape)
-
 #1 Year of Data
 ggplot(aes(x=DateHour, y=LOAD * 1e-3), 
        data=subset(dat.Loads, Date >= as.Date("2009-01-01") & Date <= as.Date("2010-01-01"))) + 
@@ -26,9 +25,7 @@ ggplot(aes(x=DateHour, y=LOAD * 1e-3),
   xlab("") + ylab("(GWh)") +
   theme_bw(base_size=18)
 
-#Just that Summer
-isWkEnd = function(dt){ weekdays(dt) %in% c("Saturday", "Sunday")}
-dat.Loads$isWkEnd = isWkEnd(dat.Loads$Date)
+#Summer only
 ggplot(aes(x=DateHour, y=LOAD * 1e-3), 
        data=subset(dat.Loads, Date >= as.Date("2009-07-01") & Date <= as.Date("2009-07-28"))) + 
   geom_point(aes(color=isWkEnd), size=3) + 
@@ -58,13 +55,14 @@ ggplot(aes(x=HOUR, y=LOAD * 1e-3, group=Date, color=Date),
   ylab("(GWh)") + xlab("Hour") +
   theme_bw(base_size=18)
 
+#################
+# Create lagged data for regression
+#################
 library(reshape)
 hourlyLoads = cast(dat.Loads, Date~HOUR, value="LOAD")
 hourlyDry = cast(dat.Loads, Date~HOUR, value="DRY.BULB")
 hourlyDew = cast(dat.Loads, Date~HOUR, value="DEW.POINT")
 
-
-#name the rows for ease
 rownames(hourlyLoads) = hourlyLoads$Date
 rownames(hourlyDry) = hourlyDry$Date
 rownames(hourlyDew) = hourlyDew$Date
@@ -87,14 +85,6 @@ newDat = cbind(newDat, isWkEnd = isWkEnd(newDat$DateHour),
                       Year = format(newDat$DateHour, "%Y"), 
                       DayOfWeek= weekdays(newDat$DateHour)) 
 
-
 #write everything except first 24 entries, which are all NA
 sum(is.na(newDat[-c(1:24), ]))
 write.csv(newDat[-c(1:24), ], "laggedData.csv")
-
-###It would be nice at this point to construct a periodogram of
-# how many past hours you need
-
-library(TSA)
-t = spectrum(x=dat.Loads$LOAD)
-t = spectrum(cos((1:1000)*20/2/pi))
