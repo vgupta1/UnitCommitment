@@ -65,7 +65,7 @@ println("Setting up MipStart Stuff", toc() )
 writedlm(ofile, ["Set" "NumEigs" "Ind" "Status" "TotCost" "StartCost" "VarCost" "Shed" "NomTotCost" "SolveTime"])
 # iterate over directions
 for (numDirs, ix) in product([1 2 3 5 10],INDXSET)
-	if ix == 116 and numDirs < 4
+	if (ix == 116) && (numDirs < 4)
 		continue
 	end
 
