@@ -42,7 +42,7 @@ function loadISO( dir, filt_ratio=.3, report=false )
 			numFuel = 0; cap = 0.
 			for g in gens_by_fuel
 				numFuel += 1
-				cap = getCap(g, 13)
+				cap += getCap(g, 13)
 			end
 			println("$fueltype \t $numFuel \t $cap")
 		end

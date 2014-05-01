@@ -51,7 +51,7 @@ for (eps, g1, g2) in product(eps_grid, g1_grid, g2_grid)
 		alphas, uncs = createPolyUCS(m, resids, g1, g2, kappa(eps))
 		rob = UCRob(m, gens, penalty, uncs)
 		solve(rob, vals[ix, :], report=false)
-		copyWarmStart(rob, WarmStartInfo())
+		w = copyWarmStart(rob, WarmStartInfo())
 
 		#train and solve an affine model
 		train_indx = [1:ix-1, ix+1:size(resids,1)]
@@ -60,6 +60,7 @@ for (eps, g1, g2) in product(eps_grid, g1_grid, g2_grid)
 		alphas, uncs = createPolyUCS(rm2, resids[train_indx, :], g1, g2, kappa(eps), true)
 		aff = UCAff(rm2, gens, penalty, uncs)
 		aff.proj_fcn = eigenProjMatrixData(resids[train_indx, :], numEigs)
+		aff.warmstart = w
 
 		# samples = readdlm(open(ARGS[2], "r"), '\t')
 		# aff.sample_uncs = samples

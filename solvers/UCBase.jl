@@ -63,7 +63,7 @@ function addMinDown(m, xs, ys, minDown::Int)
     end
 end
 
-function secondSolve(ucbase, loads; report=true)
+function secondSolve(ucbase, loads; report=false)
 	tic()
 	nom2 = UCNom(ucbase.gendata, PENALTY = ucbase.penalty)
 
