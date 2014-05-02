@@ -9,7 +9,7 @@ include("robustsolver.jl")
 include("UncSets.jl")
 include("adaptivesolver.jl")
 
-gens, scaling       = loadISO("../Data/AndysGenInstance", 1-1e-8)
+gens, scaling       = loadISO("../Data/AndysGenInstance", .1)
 dts, vals           = readLoads("../Data/ISO-NE Load Data/PredTest.csv")
 dts_true, vals_true = readLoads("../Data/ISO-NE Load Data/LoadTest.csv")
 vals               *= scaling
@@ -74,12 +74,12 @@ for (mode, ix) in product([:true :random :none], INDXSET)
 	aff.warmstart = warmStartsUCS[ix]
 	
 	if mode == :true
-		aff.sample_uncs = readdlm(open("../results/Size_10/TestSet/cuts$cluster.txt", "r"), '\t')
+		aff.sample_uncs = readdlm(open("../results/Size_10/TestSet/lpcuts$cluster.txt", "r"), '\t')
 	elseif mode ==:random
 		#choose a random number that's not cluster the given cluster
 		indx = ceil(rand() * 3)
 		cluster = filter(x-> x != cluster, clusters)[indx]
-		aff.sample_uncs = readdlm(open("../results/Size_10/TestSet/cuts$cluster.txt", "r"), '\t')
+		aff.sample_uncs = readdlm(open("../results/Size_10/TestSet/lpcuts$cluster.txt", "r"), '\t')
 	end		
 	ucstime = 0
 	tic()
