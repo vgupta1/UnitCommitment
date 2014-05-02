@@ -34,7 +34,7 @@ tic()
 nomVals = Dict{Int, Float64}()
 warmStartsUCS = Dict{Int, WarmStartInfo}()
 warmStartsBudget = Dict{Int, WarmStartInfo}()
-for ix in INDXSET[1]
+for ix in INDXSET
     m = RobustModel(solver=GurobiSolver(OutputFlag=0, MIPGap=1e-3, TimeLimit=15*60))
     nom = UCNom(m, gens, penalty)
     solve(nom, vals[ix, :])
@@ -59,7 +59,7 @@ println("Setting up MipStart Stuff", toc() )
 
 writedlm(ofile, ["Set" "NumEigs" "Ind" "Status" "TotCost" "StartCost" "VarCost" "Shed" "NomTotCost" "SolveTime" "Gap"])
 # iterate over directions
-for (numDirs, ix) in product([1 2 3 5 10],INDXSET[1])
+for (numDirs, ix) in product([1 2 3 5 7 10],INDXSET)
 	#solve a UC 
 	rm2 = RobustModel(solver=GurobiSolver(MIPGap=1e-3, OutputFlag=0, Method=3, TimeLimit=60*60), 
 					  cutsolver=GurobiSolver(OutputFlag=0))
