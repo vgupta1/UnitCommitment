@@ -121,8 +121,20 @@ function addFirstStage!(ucbase; TOL=1e-8)
     end
 end
 
+function relax(m::Model)
+    any_relax = false
+    for i = 1:m.numCols
+        if m.colCat[i] == INTEGER
+            any_relax = true
+            m.colLower[i] = 0
+            m.colUpper[i] = 1
+            m.colCat[i] = CONTINUOUS
+        end
+    end
+end
+
 #The whole shebang
-function solve(ucbase, forecasts; forceserve=false, report=true, args...)
+function solve(ucbase, forecasts; forceserve=false, report=true, lprelax=false, args...)
 	tic();
 	addFirstStage!(ucbase)
 	addSecondStage!(ucbase)
@@ -137,6 +149,8 @@ function solve(ucbase, forecasts; forceserve=false, report=true, args...)
         end
     end
     buildTime = toq();
+
+    lprelax && relax(ucbase.m)
 
 	tic(); status = solve_(ucbase, report; args...); solveTime = toq();
 
