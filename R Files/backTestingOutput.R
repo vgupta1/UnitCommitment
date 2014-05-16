@@ -20,61 +20,179 @@ rob.dat = loadData("robSummary.txt")
 qplot(x=rob.dat$PredVarCost, y=nom.dat$VarCost) + geom_point()
 
 #### The affine on the smaller sets
-setwd("/Users/VGupta/Documents/Research/UnitCommittment/UnitCommitment/results/Size_10/")
-dat.aff = read.delim(file="affUCSbacktest.txt", sep="\t")
-dat.aff = unique(dat.aff)
-dat.aff$TotCost = dat.aff$FixedCost + dat.aff$VarCost + 5e3 * dat.aff$Shed
+setwd("/Users/VGupta/Documents/Research/UnitCommittment/UnitCommitment/results/Size_10/ValidateSet/")
+dat = read.delim(file="backtest_full.txt", sep="\t")
+dat$TotCost <- dat$FixedCost + dat$VarCost + 5e3 * dat$Shed
+dat$OpCost <- dat$FixedCost + dat$VarCost
 
-dat.rob = read.delim(file="robbacktest_testset.txt")
-dat.rob$TotCost = dat.rob$FixedCost + dat.rob$VarCost + 5e3 * dat.rob$Shed
-dat.rob$Method = "Robust"
-
-dat = rbind(dat.aff, dat.rob)
-rm(dat.aff)
-rm(dat.rob)
+dat$Method=revalue(dat$Method, c(Robust="Box"))
 dat$Method = factor(dat$Method, 
-                    levels=c("Nominal", "Robust", "UBudget", "UCS"))
+                       c("Nominal", "Box", "UBudget", "UCS"))
 
 tab = ddply(dat, .variables=~Method, 
-      .fun=function(df){
-        c(sd(df$FixedCost), sd(df$VarCost), sd(df$Shed), sd(df$TotCost))})
-names(tab)<- c("Method", "FixedCost", "VarCost", "Shed", "TotCost")
+      .fun=colwise(mean, .cols=c("FixedCost", "VarCost", "Shed", "TotCost", "OpCost")))
 
-#Generate the histograms
+tab2 = ddply(dat, .variables=~Method, 
+                   .fun=colwise(function(col)sd(col)/sqrt(length(col)), 
+                    .cols=c("FixedCost", "VarCost", "Shed", "TotCost", "OpCost")))
+names(tab2)[2:6] = paste("Std", names(tab2[2:6]), sep="_")
+tab = merge(tab, tab2)
+tab[2:11] = 1e-3 * tab[2:11]
+tab$Shed = tab$Shed * 1e3
+tab$Std_Shed = tab$Std_Shed * 1e-3
+
+rm(tab2) 
+
+#Generate the Histograms
+#Operating Cost Histogram
+ggplot(aes(x=Method, y=OpCost*1e-3, fill=Method), data=tab) + 
+  geom_bar(stat="identity") +
+  geom_text(aes(label=round(OpCost*1e-3, 2), vjust=-.5), y=0) + 
+  ylab("Cost ($M)") + xlab("") + 
+  geom_errorbar(aes(ymin = (OpCost - OpStd)*1e-3, 
+                    ymax = (OpCost + OpStd)*1e-3), 
+                width=.4, position="dodge") + 
+  theme_bw(base_size=16) + 
+  theme(legend.position="none")
+
+#Operating Costs as histograms
+ggplot(aes(x=OpCost*1e-3, fill=Method), 
+       data = dat) +
+  geom_histogram() + 
+  facet_grid(Method~.) + 
+  geom_vline(aes(xintercept=OpCost*1e-3), data=tab) +
+  geom_text(aes(label=round(OpCost*1e-3, 2), 
+                x=OpCost*1e-3 + .5), 
+            data=tab, 
+            y=75) +
+  theme_bw(base_size=16) + 
+  theme(legend.position="none") + 
+  xlab("Operating Cost ($M)") + 
+  ylab("")
+
+
+#Mismatches as histograms
+ggplot(aes(x=Shed, fill=Method), 
+       data = dat) +
+  geom_histogram() + 
+  facet_grid(Method~.) + 
+  geom_vline(aes(xintercept=Shed), data=tab) +
+  geom_text(aes(label=round(Shed, 2), 
+                x=Shed + .9), 
+            data=tab, 
+            y=75) +
+  theme_bw(base_size=16) + 
+  theme(legend.position="none") + 
+  xlab("Mismatch (GWh)") + 
+  ylab("")
+
+#subdivide the barplots
+dat$ShedCost = dat$Shed * 5e3
+dat.melt = melt(dat, id.vars=c("Method"), 
+                measure.vars=c("OpCost", "ShedCost"), 
+                variable_name="CostType")
+
+#num for each
+num = table(dat$Method)[1] * 1e3
+ggplot(aes(x=Method), 
+       data=dat.melt) + 
+  geom_bar(aes(weight=value /num, 
+               fill=CostType)) + 
+  xlab("") + ylab("Cost ($M)") + 
+#   geom_text(aes(label=round(TotCost*1e-3, 2), 
+#                 hjust=1.2, vjust = -.25, y=1e-3 * TotCost), 
+#             data=tab) + 
+  theme_bw(base_size=16) +
+  theme(legend.position="top", 
+        legend.title=element_blank()) + 
+  scale_fill_discrete(label = c("Operating", "Mismatch")) +
+  geom_errorbar(aes(y = TotCost * 1e-3, 
+                    ymin = (TotCost - Std_TotCost), 
+                    ymax = (TotCost + Std_TotCost)), 
+                    data=tab,
+                width=.2, position="dodge")
+  
+
+
+
+ggplot(aes(x=Shed, fill=Method),
+       data = subset(dat, Method %in% c("Nominal", "UCS"))) +
+  geom_histogram(aes(y=..density..), 
+                 position="identity", alpha=.7) + 
+  theme_bw(base_size=16) + 
+  theme(legend.title=element_blank(), 
+        legend.position=c(.8, .8)) + 
+  xlab("Mismatch (GWh)") + ylab("")
+
+#Breakeven calculation?
+
+ggplot(aes(x=Method, y=TotCost*1e-3, fill=Method), data=tab) + 
+  geom_bar(stat="identity") +
+  ylab("Savings ($M)") + xlab("") + 
+  theme_bw(base_size=16) + 
+  theme(legend.position="none") 
+
+
+
 #Tot Cost
 library(grid)
 ggplot(aes(x=TotCost * 1e-3), data=dat) +
-  geom_histogram(aes(y=..density..)) + 
+  geom_histogram(aes(y=..density.., fill=Method)) + 
   facet_grid(Method~.) + 
   ylab("") + 
   xlab("Total Cost ($M)") + 
-  theme_bw(base_size=18) + 
-  theme(panel.margin = unit(.5, "cm")) 
+  geom_vline(aes(xintercept=TotCost), data=tab) +
+  geom_text(aes(label=round(TotCost, 2), 
+                x=TotCost + 7), 
+            data=tab, 
+            y=.3) +
+    theme_bw(base_size=16) + 
+  theme(legend.position="none")
+  
+  
+  #  theme(panel.margin = unit(.5, "cm")) 
 
 #Shed
 ggplot(aes(x=Shed), data=dat) +
-  geom_histogram(aes(y=..density..)) + 
+  geom_histogram(aes(y=..density.., fill=Method)) + 
   facet_grid(Method~.) + 
   ylab("") + 
   xlab("Mismatch (GWh)") + 
-  theme_bw(base_size=18)
+  geom_vline(aes(xintercept=Shed), data=tab) +
+  geom_text(aes(label=round(Shed, 2), 
+                x=Shed + 1.2), 
+            data=tab, 
+            y=1.5) +
+  theme_bw(base_size=16) + 
+  theme(legend.position="none")
 
 #VarCost
 ggplot(aes(x=VarCost * 1e-3), data=dat) +
-  geom_histogram(aes(y=..density..)) + 
+  geom_histogram(aes(y=..density.., fill=Method)) + 
   facet_grid(Method~.) + 
   ylab("") + 
   xlab("Production Cost ($M)") + 
-  theme_bw(base_size=18)
+  geom_vline(aes(xintercept=VarCost), data=tab) +
+  geom_text(aes(label=round(VarCost, 2), 
+                x=VarCost + .5), 
+            data=tab, 
+            y=2) +
+  theme_bw(base_size=16) + 
+  theme(legend.position="none")
 
 #Fixed Cost
 ggplot(aes(x=FixedCost * 1e-3), data=dat) +
-  geom_histogram(aes(y=..density..)) + 
+  geom_histogram(aes(y=..density.., fill=Method)) + 
   facet_grid(Method~.) + 
   ylab("") + 
   xlab("Startup Cost ($M)") + 
-  theme_bw(base_size=18) + 
-  theme(panel.margin = unit(.25, "cm")) 
+  geom_vline(aes(xintercept=FixedCost), data=tab) +
+  geom_text(aes(label=round(FixedCost, 2), 
+                x=FixedCost + .05), 
+            data=tab, 
+            y=30) +
+  theme_bw(base_size=16) + 
+  theme(legend.position="none")
 
 dat.by.method = cast(dat, Date ~ Method, value="TotCost")
 
